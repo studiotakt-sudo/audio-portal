@@ -303,7 +303,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                         </div>
                       </div>
                     </div>
-                    <div className="track-duration">{track.file_size ? (track.file_size/1024/1024).toFixed(1)+' MB' : ''}</div>
+                    <div className="track-duration">{track.file_size ? (track.file_size/1024/1024).toFixed(1)+' MB' : ''}{track.duration ? ' · ' + Math.floor(track.duration/60) + ':' + String(Math.floor(track.duration%60)).padStart(2,'0') : ''}</div>
                     <div className="track-actions" onClick={e => e.stopPropagation()}>
                       {versions.length > 0 && (
                         <button className={`btn-icon ${isExpanded?'edit-active':''}`} title="Show versions"
@@ -329,7 +329,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                           {v.label}
                         </div>
                       </div>
-                      <div className="track-duration">{v.file_size ? (v.file_size/1024/1024).toFixed(1)+' MB' : ''}</div>
+                      <div className="track-duration">{track.file_size ? (track.file_size/1024/1024).toFixed(1)+' MB' : ''}{track.duration ? ' · ' + Math.floor(track.duration/60) + ':' + String(Math.floor(track.duration%60)).padStart(2,'0') : ''}</div>
                       <div className="track-actions" />
                     </div>
                   ))}
