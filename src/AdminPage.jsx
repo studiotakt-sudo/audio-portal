@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
-import { T } from './App'
+import { DEFAULT_THEME as T } from './App'
 
 function hashPassword(str) {
   let hash = 0
