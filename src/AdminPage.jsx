@@ -80,7 +80,17 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
     e.preventDefault(); setDragOver(false)
     const file = e.dataTransfer?.files[0] || e.target.files?.[0]
     if (!file) return
-    setPendingFile(file)
+    // Read duration via a temporary audio element
+    const url = URL.createObjectURL(file)
+    const audio = new Audio(url)
+    audio.addEventListener('loadedmetadata', () => {
+      URL.revokeObjectURL(url)
+      setPendingFile({ file, duration: audio.duration })
+    })
+    audio.addEventListener('error', () => {
+      URL.revokeObjectURL(url)
+      setPendingFile({ file, duration: null })
+    })
     setForm(f => ({ ...f, title: file.name.replace(/\.[^.]+$/, '') }))
   }
 
