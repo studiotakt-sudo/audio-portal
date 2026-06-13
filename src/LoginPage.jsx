@@ -1,11 +1,6 @@
 import { useState } from 'react'
 import { supabase } from './supabase'
-
-function hashPassword(str) {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0 }
-  return hash.toString(16)
-}
+import { hashPassword } from './App'
 
 export default function LoginPage({ onLogin, onToast }) {
   const [name, setName]         = useState('')
@@ -21,7 +16,7 @@ export default function LoginPage({ onLogin, onToast }) {
     const { data, error: dbError } = await supabase
       .from('clients')
       .select('*')
-      .ilike('name', name.trim())
+      .ilike('name', name.trim())  // case-insensitive name match
       .single()
 
     if (dbError || !data) {

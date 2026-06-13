@@ -1,12 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
-import { T } from './App'
-
-function hashPassword(str) {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0 }
-  return hash.toString(16)
-}
+import { T, hashPassword } from './App'
 
 export default function AdminPage({ clientRow, onPlay, currentTrack, onToast }) {
   const [tab, setTab]         = useState('tracks')
