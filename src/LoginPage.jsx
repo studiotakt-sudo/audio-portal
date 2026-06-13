@@ -24,7 +24,7 @@ export default function LoginPage({ onLogin, onToast }) {
       setLoading(false); return
     }
 
-    if (data.password_plain !== password) {
+    if (data.password_hash !== hashPassword(password)) {
       setError('Incorrect password')
       setLoading(false); return
     }
