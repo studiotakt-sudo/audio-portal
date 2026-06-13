@@ -115,6 +115,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
     const { error: dbError } = await supabase.from('tracks').insert({
       title: form.title || pendingFile.name,
       file_name: pendingFile.name,
+      duration: pendingFile.duration || null,
       file_path: filePath,
       file_size: pendingFile.size,
       mime_type: pendingFile.type,
