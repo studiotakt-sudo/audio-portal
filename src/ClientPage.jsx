@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
-import { T } from './App'
+import { DEFAULT_THEME as T } from './App'
 
 export default function ClientPage({ clientRow, onPlay, currentTrack, onToast }) {
   const [tracks, setTracks]       = useState([])
