@@ -10,8 +10,8 @@ function fmtDuration(sec) {
 
 function TrackMeta({ size, duration }) {
   const parts = []
-  if (size) parts.push((size / 1024 / 1024).toFixed(1) + ' MB')
   if (duration) parts.push(fmtDuration(duration))
+  if (size) parts.push((size / 1024 / 1024).toFixed(1) + ' MB')
   return <div className="track-duration">{parts.join(' · ')}</div>
 }
 
