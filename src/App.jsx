@@ -316,7 +316,9 @@ export default function App() {
       />
       <div className="portal">
         <div className="topbar">
-          <div className="topbar-brand"><div className="topbar-brand-dot" />AUDIO PORTAL</div>
+          <div className="topbar-brand" style={{fontWeight:800, letterSpacing:'0.08em'}}>
+  <div className="topbar-brand-dot" />CYPHER CACHE
+</div>
           <div className="topbar-right">
             {clientRow && (
               <>
