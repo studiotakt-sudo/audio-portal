@@ -16,7 +16,7 @@ export default function LoginPage({ onLogin, onToast }) {
     const { data, error: dbError } = await supabase
       .from('clients')
       .select('*')
-      .ilike('name', name.trim())  // case-insensitive name match
+      .ilike('name', name.trim())
       .single()
 
     if (dbError || !data) {
