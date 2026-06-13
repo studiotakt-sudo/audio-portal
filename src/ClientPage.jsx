@@ -138,7 +138,7 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
                             {v.label}
                           </div>
                         </div>
-                        <div className="track-duration">{v.file_size ? (v.file_size/1024/1024).toFixed(1)+' MB' : ''}</div>
+                        <div className="track-duration">{track.file_size ? (track.file_size/1024/1024).toFixed(1)+' MB' : ''}{track.duration ? ' · ' + Math.floor(track.duration/60) + ':' + String(Math.floor(track.duration%60)).padStart(2,'0') : ''}</div>
                         <div className="track-actions" onClick={e => e.stopPropagation()}>
                           <button className="btn-icon" title="Preview"
                             onClick={() => onPlay({...track, file_path:v.file_path, file_name:v.file_name, file_size:v.file_size, versionIdx:vi, versionLabel:v.label})}>▶</button>
