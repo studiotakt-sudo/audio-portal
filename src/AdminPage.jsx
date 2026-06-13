@@ -1,16 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
-import { T } from './App'
+import { T, hashPassword } from './App'
 
 export default function AdminPage({ clientRow, onPlay, currentTrack, onToast }) {
-  const [tab, setTab]       = useState('tracks')
-  const [tracks, setTracks] = useState([])
+  const [tab, setTab]         = useState('tracks')
+  const [tracks, setTracks]   = useState([])
   const [clients, setClients] = useState([])
   const [loadingData, setLoadingData] = useState(true)
 
-  useEffect(() => {
-    fetchAll()
-  }, [])
+  useEffect(() => { fetchAll() }, [])
 
   const fetchAll = async () => {
     setLoadingData(true)
@@ -39,12 +37,10 @@ export default function AdminPage({ clientRow, onPlay, currentTrack, onToast }) 
           </div>
         </div>
       </div>
-
       <div className="tabs">
         <button className={`tab ${tab === 'tracks' ? 'active' : ''}`} onClick={() => setTab('tracks')}>🎵 Tracks</button>
         <button className={`tab ${tab === 'clients' ? 'active' : ''}`} onClick={() => setTab('clients')}>👤 Clients</button>
       </div>
-
       {tab === 'tracks'
         ? <TrackManager tracks={tracks} clients={clients} onRefresh={fetchAll} onPlay={onPlay} currentTrack={currentTrack} onToast={onToast} />
         : <ClientManager clients={clients} onRefresh={fetchAll} onToast={onToast} />
@@ -55,14 +51,14 @@ export default function AdminPage({ clientRow, onPlay, currentTrack, onToast }) 
 
 // ─── Track Manager ─────────────────────────────────────────────────
 function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToast }) {
-  const [dragOver, setDragOver]         = useState(false)
-  const [pendingFile, setPendingFile]   = useState(null)
-  const [form, setForm]                 = useState({ title:'', tags:[], tagInput:'', assignedTo:[] })
-  const [uploading, setUploading]       = useState(false)
+  const [dragOver, setDragOver]       = useState(false)
+  const [pendingFile, setPendingFile] = useState(null)
+  const [form, setForm]               = useState({ title:'', tags:[], tagInput:'', assignedTo:[] })
+  const [uploading, setUploading]     = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const [search, setSearch]             = useState('')
-  const [editingId, setEditingId]       = useState(null)
-  const [editState, setEditState]       = useState({})
+  const [search, setSearch]           = useState('')
+  const [editingId, setEditingId]     = useState(null)
+  const [editState, setEditState]     = useState({})
   const fileRef = useRef()
 
   const clientList = clients.filter(c => c.role === 'client')
@@ -78,32 +74,25 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
   const addTag = () => {
     const t = form.tagInput.trim().toLowerCase().replace(/\s+/g, '-')
     if (!t || form.tags.includes(t)) return
-    setForm(f => ({ ...f, tags: [...f.tags, t], tagInput: '' }))
+    setForm(f => ({ ...f, tags:[...f.tags, t], tagInput:'' }))
   }
   const removeTag = tag => setForm(f => ({ ...f, tags: f.tags.filter(x => x !== tag) }))
   const toggleClient = id => setForm(f => ({
-    ...f,
-    assignedTo: f.assignedTo.includes(id) ? f.assignedTo.filter(x => x !== id) : [...f.assignedTo, id]
+    ...f, assignedTo: f.assignedTo.includes(id) ? f.assignedTo.filter(x => x !== id) : [...f.assignedTo, id]
   }))
 
   const uploadTrack = async () => {
     if (!pendingFile) return
     setUploading(true); setUploadProgress(10)
 
-    // 1. Upload file to Supabase Storage
     const filePath = `${Date.now()}-${pendingFile.name.replace(/\s+/g, '_')}`
     const { error: uploadError } = await supabase.storage
       .from('audio-tracks')
       .upload(filePath, pendingFile, { contentType: pendingFile.type })
 
-    if (uploadError) {
-      onToast('Upload failed: ' + uploadError.message, 'error')
-      setUploading(false); return
-    }
-
+    if (uploadError) { onToast('Upload failed: ' + uploadError.message, 'error'); setUploading(false); return }
     setUploadProgress(70)
 
-    // 2. Save metadata to database
     const { error: dbError } = await supabase.from('tracks').insert({
       title: form.title || pendingFile.name,
       file_name: pendingFile.name,
@@ -114,10 +103,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
       assigned_to: form.assignedTo.length ? form.assignedTo : clientList.map(c => c.id),
     })
 
-    if (dbError) {
-      onToast('Could not save track info: ' + dbError.message, 'error')
-      setUploading(false); return
-    }
+    if (dbError) { onToast('Could not save track: ' + dbError.message, 'error'); setUploading(false); return }
 
     setUploadProgress(100)
     await onRefresh()
@@ -127,12 +113,11 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
     onToast('Track uploaded successfully')
   }
 
-  // Edit helpers
   const openEdit = (track, e) => {
     e.stopPropagation()
     if (editingId === track.id) { setEditingId(null); return }
     setEditingId(track.id)
-    setEditState({ title: track.title, tags: [...(track.tags||[])], tagInput:'', assignedTo: [...(track.assigned_to||[])] })
+    setEditState({ title:track.title, tags:[...(track.tags||[])], tagInput:'', assignedTo:[...(track.assigned_to||[])] })
   }
   const editAddTag = () => {
     const t = editState.tagInput.trim().toLowerCase().replace(/\s+/g, '-')
@@ -141,27 +126,21 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
   }
   const editRemoveTag = tag => setEditState(s => ({ ...s, tags: s.tags.filter(x => x !== tag) }))
   const editToggleClient = id => setEditState(s => ({
-    ...s,
-    assignedTo: s.assignedTo.includes(id) ? s.assignedTo.filter(x => x !== id) : [...s.assignedTo, id]
+    ...s, assignedTo: s.assignedTo.includes(id) ? s.assignedTo.filter(x => x !== id) : [...s.assignedTo, id]
   }))
   const saveEdit = async (trackId) => {
     const { error } = await supabase.from('tracks').update({
-      title: editState.title,
-      tags: editState.tags,
-      assigned_to: editState.assignedTo,
+      title: editState.title, tags: editState.tags, assigned_to: editState.assignedTo,
     }).eq('id', trackId)
     if (error) { onToast('Save failed', 'error'); return }
-    await onRefresh()
-    setEditingId(null)
-    onToast('Track updated')
+    await onRefresh(); setEditingId(null); onToast('Track updated')
   }
 
   const deleteTrack = async (track) => {
     if (!confirm('Delete this track?')) return
     await supabase.storage.from('audio-tracks').remove([track.file_path])
     await supabase.from('tracks').delete().eq('id', track.id)
-    await onRefresh()
-    onToast('Track deleted')
+    await onRefresh(); onToast('Track deleted')
   }
 
   const filtered = tracks.filter(t =>
@@ -172,15 +151,12 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
 
   return (
     <>
-      {/* Upload zone */}
       {!pendingFile && (
-        <div
-          className={`upload-zone ${dragOver ? 'drag-over' : ''}`}
+        <div className={`upload-zone ${dragOver ? 'drag-over' : ''}`}
           onDragOver={e => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleFileDrop}
-          onClick={() => fileRef.current.click()}
-        >
+          onClick={() => fileRef.current.click()}>
           <div className="upload-icon">🎵</div>
           <div className="upload-hint">Drop audio file or <strong>click to browse</strong></div>
           <div className="upload-formats">MP3 · WAV · FLAC · AAC · OGG · M4A</div>
@@ -188,7 +164,6 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
         </div>
       )}
 
-      {/* Upload form */}
       {pendingFile && (
         <div className="upload-form">
           <div className="upload-form-header">
@@ -198,7 +173,6 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
             </div>
             <button className="btn btn-ghost btn-sm" onClick={() => setPendingFile(null)}>Cancel</button>
           </div>
-
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
             <div className="field">
               <label className="label">Track title</label>
@@ -217,14 +191,13 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
               </div>
             </div>
           </div>
-
           <div className="field">
             <label className="label">Tags</label>
             <div className="tag-input-row">
               <input className="input" style={{flex:1}} placeholder="e.g. upbeat, rock, 120bpm"
                 value={form.tagInput}
                 onChange={e => setForm(f => ({...f, tagInput:e.target.value}))}
-                onKeyDown={e => { if (e.key==='Enter'||e.key===',') { e.preventDefault(); addTag() }}} />
+                onKeyDown={e => { if(e.key==='Enter'||e.key===','){e.preventDefault();addTag()}}} />
               <button className="btn btn-ghost btn-sm" onClick={addTag}>Add</button>
             </div>
             {form.tags.length > 0 && (
@@ -237,20 +210,13 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
               </div>
             )}
           </div>
-
-          {uploading && (
-            <div className="progress-bar-upload">
-              <div className="progress-bar-upload-fill" style={{width:`${uploadProgress}%`}} />
-            </div>
-          )}
-
+          {uploading && <div className="progress-bar-upload"><div className="progress-bar-upload-fill" style={{width:`${uploadProgress}%`}} /></div>}
           <button className="btn btn-primary" style={{marginTop:16}} onClick={uploadTrack} disabled={uploading}>
             {uploading ? <><span className="spinner"/>Uploading…</> : 'Upload track'}
           </button>
         </div>
       )}
 
-      {/* Search + list */}
       {tracks.length > 0 && (
         <>
           <div className="search-bar">
@@ -267,19 +233,15 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
               const assignedNames = clients.filter(c => track.assigned_to?.includes(c.id)).map(c => c.name)
               return (
                 <div key={track.id}>
-                  <div
-                    className={`track-row ${currentTrack?.id===track.id?'playing':''} ${isEditing?'editing':''}`}
-                    onClick={() => !isEditing && onPlay(track)}
-                  >
+                  <div className={`track-row ${currentTrack?.id===track.id?'playing':''} ${isEditing?'editing':''}`}
+                    onClick={() => !isEditing && onPlay(track)}>
                     <div className={`track-num ${currentTrack?.id===track.id?'playing-indicator':''}`}>
                       {currentTrack?.id===track.id ? '♪' : i+1}
                     </div>
                     <div className="track-info">
                       <div className={`track-name ${currentTrack?.id===track.id?'playing':''}`}>{track.title}</div>
                       <div className="track-meta">
-                        <span className="track-uploader">
-                          {assignedNames.length ? `→ ${assignedNames.join(', ')}` : '→ All clients'}
-                        </span>
+                        <span className="track-uploader">{assignedNames.length ? `→ ${assignedNames.join(', ')}` : '→ All clients'}</span>
                         <div className="track-tags-inline">
                           {track.tags?.map(tag => <span key={tag} className="tag-inline">#{tag}</span>)}
                         </div>
@@ -364,37 +326,41 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
 
 // ─── Client Manager ────────────────────────────────────────────────
 function ClientManager({ clients, onRefresh, onToast }) {
-  const [form, setForm] = useState({ name:'', email:'', password:'' })
-  const [error, setError] = useState('')
+  const [form, setForm]     = useState({ name:'', password:'' })
+  const [error, setError]   = useState('')
   const [loading, setLoading] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [newPass, setNewPass]     = useState('')
   const clientList = clients.filter(c => c.role === 'client')
 
   const addClient = async () => {
     setError('')
     if (!form.name.trim()) { setError('Name is required'); return }
-    if (!form.email.trim()) { setError('Email is required'); return }
-    if (form.password.length < 6) { setError('Password must be at least 6 characters'); return }
-    setLoading(true)
-
-    // Create auth user via Supabase Admin — we use signUp here
-    // In production you'd use the service_role key server-side, but for simplicity:
-    const { data, error: authError } = await supabase.auth.admin.createUser({
-      email: form.email,
-      password: form.password,
-      email_confirm: true,
-    })
-
-    if (authError) {
-      // Fallback: just add to clients table, they'll need to use "invite" flow
-      setError('Note: Auth user creation requires admin API. Add the client in Supabase Auth dashboard, then they will appear here.')
-      setLoading(false); return
+    if (form.password.length < 4) { setError('Password must be at least 4 characters'); return }
+    if (clients.some(c => c.name.toLowerCase() === form.name.trim().toLowerCase())) {
+      setError('A client with that name already exists'); return
     }
-
-    await supabase.from('clients').insert({ name: form.name, email: form.email, role: 'client' })
+    setLoading(true)
+    const { error: dbError } = await supabase.from('clients').insert({
+      name: form.name.trim(),
+      role: 'client',
+      password_hash: hashPassword(form.password),
+    })
+    if (dbError) { setError('Could not add client: ' + dbError.message); setLoading(false); return }
     await onRefresh()
-    setForm({ name:'', email:'', password:'' })
+    setForm({ name:'', password:'' })
     setLoading(false)
     onToast('Client added')
+  }
+
+  const resetPassword = async (id) => {
+    if (newPass.length < 4) { onToast('Password must be at least 4 characters', 'error'); return }
+    const { error } = await supabase.from('clients')
+      .update({ password_hash: hashPassword(newPass) })
+      .eq('id', id)
+    if (error) { onToast('Could not update password', 'error'); return }
+    setEditingId(null); setNewPass('')
+    onToast('Password updated')
   }
 
   const deleteClient = async (client) => {
@@ -407,18 +373,17 @@ function ClientManager({ clients, onRefresh, onToast }) {
   return (
     <>
       <div className="upload-form">
-        <div className="upload-form-title" style={{marginBottom:4}}>Add new client</div>
-        <p style={{fontSize:12, color:T.textMuted, marginBottom:16, lineHeight:1.5}}>
-          After adding a client here, also create their account under <strong style={{color:T.textSecondary}}>Supabase → Authentication → Users → Add user</strong> using the same email.
-        </p>
-        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, alignItems:'end'}}>
+        <div className="upload-form-title" style={{marginBottom:16}}>Add new client</div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:12, alignItems:'end'}}>
           <div className="field" style={{marginBottom:0}}>
             <label className="label">Name</label>
-            <input className="input" placeholder="Client name" value={form.name} onChange={e => setForm(f=>({...f,name:e.target.value}))} />
+            <input className="input" placeholder="Client name"
+              value={form.name} onChange={e => setForm(f => ({...f, name:e.target.value}))} />
           </div>
           <div className="field" style={{marginBottom:0}}>
-            <label className="label">Email</label>
-            <input className="input" type="email" placeholder="client@example.com" value={form.email} onChange={e => setForm(f=>({...f,email:e.target.value}))} />
+            <label className="label">Password</label>
+            <input type="text" className="input" placeholder="Set a password"
+              value={form.password} onChange={e => setForm(f => ({...f, password:e.target.value}))} />
           </div>
           <button className="btn btn-primary" onClick={addClient} disabled={loading}>
             {loading ? <><span className="spinner"/>Adding…</> : 'Add client'}
@@ -435,9 +400,23 @@ function ClientManager({ clients, onRefresh, onToast }) {
           <div key={c.id} className="client-card">
             <div>
               <div className="client-name">{c.name}</div>
-              <div className="client-email">{c.email}</div>
+              <div className="client-meta">Added {new Date(c.created_at).toLocaleDateString()}</div>
             </div>
-            <button className="btn btn-danger btn-sm" onClick={() => deleteClient(c)}>Remove</button>
+            <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}}>
+              {editingId === c.id ? (
+                <>
+                  <input className="input" style={{width:160}} type="text" placeholder="New password"
+                    value={newPass} onChange={e => setNewPass(e.target.value)} />
+                  <button className="btn btn-primary btn-sm" onClick={() => resetPassword(c.id)}>Save</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setEditingId(null); setNewPass('') }}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(c.id)}>Reset password</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => deleteClient(c)}>Remove</button>
+                </>
+              )}
+            </div>
           </div>
         ))
       }

@@ -4,7 +4,6 @@ import LoginPage from './LoginPage'
 import AdminPage from './AdminPage'
 import ClientPage from './ClientPage'
 
-// ─── Design tokens ────────────────────────────────────────────────
 export const T = {
   bg0: '#0a0b0f', bg1: '#11131a', bg2: '#191c26', bg3: '#222534',
   border: '#2a2e42', amber: '#e8a44a', amberDim: '#7a5520',
@@ -99,7 +98,7 @@ export const css = `
   .tab { padding: 10px 20px; font-size: 13px; font-weight: 500; color: ${T.textSecondary}; cursor: pointer; border: none; background: none; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; font-family: 'Space Grotesk', sans-serif; }
   .tab:hover { color: ${T.textPrimary}; } .tab.active { color: ${T.amber}; border-bottom-color: ${T.amber}; }
   .client-card { background: ${T.bg1}; border: 1px solid ${T.border}; border-radius: 6px; padding: 16px 20px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-  .client-name { font-size: 14px; font-weight: 500; } .client-email { font-family: 'Space Mono', monospace; font-size: 11px; color: ${T.textSecondary}; margin-top: 2px; }
+  .client-name { font-size: 14px; font-weight: 500; } .client-meta { font-family: 'Space Mono', monospace; font-size: 11px; color: ${T.textSecondary}; margin-top: 2px; }
   .empty-state { padding: 60px 20px; text-align: center; color: ${T.textMuted}; font-size: 14px; }
   .empty-icon { font-size: 40px; opacity: 0.3; margin-bottom: 12px; }
   .section-header { font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.15em; color: ${T.textMuted}; text-transform: uppercase; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid ${T.border}; }
@@ -119,8 +118,7 @@ export const css = `
     .main { padding: 16px; } .topbar { padding: 0 16px; }
     .track-row { grid-template-columns: 32px 1fr auto; } .track-duration { display: none; }
     .player-bar { flex-wrap: wrap; gap: 10px; } .player-progress { min-width: 100%; order: 3; }
-    .track-edit-grid { grid-template-columns: 1fr; }
-    .login-card { padding: 32px 24px; }
+    .track-edit-grid { grid-template-columns: 1fr; } .login-card { padding: 32px 24px; }
   }
 `
 
@@ -130,11 +128,17 @@ export function fmtTime(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+// Simple hash — same as before
+export function hashPassword(str) {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0 }
+  return hash.toString(16)
+}
+
 export default function App() {
-  const [session, setSession]       = useState(null)   // supabase auth session
-  const [clientRow, setClientRow]   = useState(null)   // row from clients table
-  const [loading, setLoading]       = useState(true)
-  const [toast, setToast]           = useState(null)   // { msg, type }
+  const [clientRow, setClientRow] = useState(null)   // logged-in client from DB
+  const [loading, setLoading]     = useState(true)
+  const [toast, setToast]         = useState(null)
 
   // Player
   const [currentTrack, setCurrentTrack] = useState(null)
@@ -143,31 +147,23 @@ export default function App() {
   const [duration, setDuration]         = useState(0)
   const audioRef = useRef(null)
 
-  // ── Auth listener ───────────────────────────────────────────────
+  // Check sessionStorage for persisted login
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      if (session) fetchClientRow(session.user.email)
-      else setLoading(false)
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (session) fetchClientRow(session.user.email)
-      else { setClientRow(null); setLoading(false) }
-    })
-
-    return () => subscription.unsubscribe()
+    const saved = sessionStorage.getItem('portal_client')
+    if (saved) setClientRow(JSON.parse(saved))
+    setLoading(false)
   }, [])
 
-  const fetchClientRow = async (email) => {
-    const { data } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('email', email)
-      .single()
-    setClientRow(data)
-    setLoading(false)
+  const handleLogin = (client) => {
+    setClientRow(client)
+    sessionStorage.setItem('portal_client', JSON.stringify(client))
+  }
+
+  const handleSignOut = () => {
+    setClientRow(null)
+    sessionStorage.removeItem('portal_client')
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = '' }
+    setCurrentTrack(null); setIsPlaying(false)
   }
 
   const showToast = (msg, type = 'success') => {
@@ -175,35 +171,21 @@ export default function App() {
     setTimeout(() => setToast(null), 3500)
   }
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = '' }
-    setCurrentTrack(null); setIsPlaying(false)
-  }
-
-  // ── Player ──────────────────────────────────────────────────────
+  // Player controls
   const playTrack = useCallback(async (track) => {
     const el = audioRef.current
     if (!el) return
-
-    // Get a signed URL valid for 1 hour
     const { data, error } = await supabase.storage
       .from('audio-tracks')
       .createSignedUrl(track.file_path, 3600)
-
-    if (error || !data?.signedUrl) {
-      showToast('Could not load audio file', 'error')
-      return
-    }
-
+    if (error || !data?.signedUrl) { showToast('Could not load audio', 'error'); return }
     el.pause()
     el.src = data.signedUrl
     el.load()
     el.play().catch(console.error)
     setCurrentTrack(track)
     setIsPlaying(true)
-    setProgress(0)
-    setDuration(0)
+    setProgress(0); setDuration(0)
   }, [])
 
   const togglePlay = () => {
@@ -221,7 +203,6 @@ export default function App() {
     el.currentTime = ratio * duration
   }
 
-  // ── Render ──────────────────────────────────────────────────────
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background: T.bg0, color: T.textMuted, fontFamily:'Space Mono,monospace', fontSize:13 }}>
       <span className="spinner" />Loading…
@@ -239,20 +220,13 @@ export default function App() {
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
       />
-
       <div className="portal">
-        {/* Topbar */}
         <div className="topbar">
-          <div className="topbar-brand">
-            <div className="topbar-brand-dot" />
-            AUDIO PORTAL
-          </div>
+          <div className="topbar-brand"><div className="topbar-brand-dot" />AUDIO PORTAL</div>
           <div className="topbar-right">
-            {session && clientRow && (
+            {clientRow && (
               <>
-                <span className={`mode-badge ${clientRow.role}`}>
-                  {clientRow.role === 'admin' ? '⬡ Admin' : 'Client'}
-                </span>
+                <span className={`mode-badge ${clientRow.role}`}>{clientRow.role === 'admin' ? '⬡ Admin' : 'Client'}</span>
                 <span style={{ fontSize:13, color: T.textSecondary }}>{clientRow.name}</span>
                 <button className="btn btn-ghost btn-sm" onClick={handleSignOut}>Sign out</button>
               </>
@@ -260,25 +234,21 @@ export default function App() {
           </div>
         </div>
 
-        {/* Body */}
-        {!session
-          ? <LoginPage onToast={showToast} />
-          : clientRow?.role === 'admin'
+        {!clientRow
+          ? <LoginPage onLogin={handleLogin} onToast={showToast} />
+          : clientRow.role === 'admin'
             ? <AdminPage clientRow={clientRow} onPlay={playTrack} currentTrack={currentTrack} onToast={showToast} />
             : <ClientPage clientRow={clientRow} onPlay={playTrack} currentTrack={currentTrack} onToast={showToast} />
         }
       </div>
 
-      {/* Player bar */}
       {currentTrack && (
         <div className="player-bar">
           <div className="player-track-info">
             <div className="player-track-name">{currentTrack.title}</div>
             <div className="player-track-sub">{currentTrack.tags?.join(' · ')}</div>
           </div>
-          <button className="player-play-btn" onClick={togglePlay}>
-            {isPlaying ? '⏸' : '▶'}
-          </button>
+          <button className="player-play-btn" onClick={togglePlay}>{isPlaying ? '⏸' : '▶'}</button>
           <div className="player-progress">
             <span className="time-label">{fmtTime(progress)}</span>
             <div className="progress-bar" onClick={seekTo}>
@@ -289,12 +259,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Toast */}
-      {toast && (
-        <div className={`toast toast-${toast.type}`}>
-          {toast.type === 'success' ? '✓' : '✕'} {toast.msg}
-        </div>
-      )}
+      {toast && <div className={`toast toast-${toast.type}`}>{toast.type === 'success' ? '✓' : '✕'} {toast.msg}</div>}
     </>
   )
 }

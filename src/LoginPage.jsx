@@ -1,25 +1,35 @@
 import { useState } from 'react'
 import { supabase } from './supabase'
-import { T } from './App'
+import { hashPassword } from './App'
 
-export default function LoginPage({ onToast }) {
-  const [email, setEmail]       = useState('')
+export default function LoginPage({ onLogin, onToast }) {
+  const [name, setName]         = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
 
   const handleLogin = async () => {
     setError('')
-    if (!email || !password) { setError('Please enter your email and password'); return }
+    if (!name.trim() || !password) { setError('Please enter your name and password'); return }
     setLoading(true)
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error: dbError } = await supabase
+      .from('clients')
+      .select('*')
+      .ilike('name', name.trim())  // case-insensitive name match
+      .single()
 
-    if (error) {
-      setError('Incorrect email or password')
-      setLoading(false)
+    if (dbError || !data) {
+      setError('Name not found')
+      setLoading(false); return
     }
-    // On success the auth listener in App.jsx takes over
+
+    if (data.password_hash !== hashPassword(password)) {
+      setError('Incorrect password')
+      setLoading(false); return
+    }
+
+    onLogin(data)
   }
 
   return (
@@ -29,37 +39,27 @@ export default function LoginPage({ onToast }) {
         <div className="login-title">Sign in to access your files</div>
 
         <div className="field">
-          <label className="label">Email</label>
-          <input
-            className={`input ${error ? 'input-error' : ''}`}
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleLogin()}
-          />
+          <label className="label">Name</label>
+          <input className={`input ${error ? 'input-error' : ''}`}
+            placeholder="Your name"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleLogin()} />
         </div>
 
         <div className="field">
           <label className="label">Password</label>
-          <input
-            className={`input ${error ? 'input-error' : ''}`}
-            type="password"
+          <input type="password" className={`input ${error ? 'input-error' : ''}`}
             placeholder="••••••••"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleLogin()}
-          />
+            onKeyDown={e => e.key === 'Enter' && handleLogin()} />
         </div>
 
         {error && <div className="error-msg">{error}</div>}
 
-        <button
-          className="btn btn-primary"
-          style={{ width: '100%', marginTop: 20 }}
-          onClick={handleLogin}
-          disabled={loading}
-        >
+        <button className="btn btn-primary" style={{ width:'100%', marginTop:20 }}
+          onClick={handleLogin} disabled={loading}>
           {loading ? <><span className="spinner" />Signing in…</> : 'Sign in →'}
         </button>
       </div>
