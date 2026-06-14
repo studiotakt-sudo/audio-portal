@@ -205,7 +205,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
 
   // ── Upload ───────────────────────────────────────────────────
   const uploadTrack = async () => {
-    if (!pendingFile) return
+    if (!pendingFile || !pendingFile.file) return
     setUploading(true); setUploadProgress(10)
     const { file, duration, waveformPeaks } = pendingFile
     const filePath = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`
@@ -361,6 +361,8 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
           </div>
         </div>
       )}
+
+      {pendingFile && (
         <div className="upload-form">
           <div className="upload-form-header">
             <div>
