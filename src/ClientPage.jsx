@@ -159,7 +159,7 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
               <div className="track-info">
                 <div className={`track-name ${isVersionPlaying ? 'playing' : ''}`} style={{fontSize:13}}>{v.label}</div>
               </div>
-              <TrackMeta size={v.file_size} duration={v.duration} />
+              <div className="track-duration">{fmtDuration(v.duration)}</div>
               <div className="track-actions" onClick={e => e.stopPropagation()}>
                 <button className="btn-icon" title="Preview"
                   onClick={() => onPlay({...track, file_path:v.file_path, file_name:v.file_name, file_size:v.file_size, duration:v.duration, versionIdx:vi, versionLabel:v.label})}>▶</button>
@@ -221,7 +221,7 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
                         {track.title}
                       </div>
                       <div style={{fontSize:11, color:T.textMuted, fontFamily:'Space Mono,monospace'}}>
-                        {fmtDuration(track.duration)}{track.duration && track.file_size ? ' · ' : ''}{track.file_size ? (track.file_size/1024/1024).toFixed(1)+' MB' : ''}
+                        {fmtDuration(track.duration)}
                       </div>
                       {track.tags?.length > 0 && (
                         <div style={{display:'flex', gap:4, flexWrap:'wrap', marginTop:8}}>
