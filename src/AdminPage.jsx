@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
-import { DEFAULT_THEME as T } from './App'
+import { DEFAULT_THEME as T, fmtTime, InlineSeekbar } from './App'
 
 function hashPassword(str) {
   let hash = 0
@@ -21,38 +21,28 @@ function TrackMeta({ size, duration }) {
   return <div className="track-duration">{parts.join(' · ')}</div>
 }
 
-function WaveformBg({ peaks, progress, duration, accentColor, baseColor }) {
+function WaveformBg({ peaks, baseColor }) {
   const canvasRef = useRef(null)
-
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !peaks || peaks.length === 0) return
     const ctx = canvas.getContext('2d')
-    const W = canvas.width
-    const H = canvas.height
+    const W = canvas.width, H = canvas.height
     ctx.clearRect(0, 0, W, H)
-    const progressRatio = duration ? progress / duration : 0
-    const playedX = progressRatio * W
     const barW = W / peaks.length
     peaks.forEach((peak, i) => {
       const x = i * barW
       const barH = Math.max(1, peak * 16)
       const y = (H - barH) / 2
-      const isPlayed = x < playedX
-      ctx.fillStyle = isPlayed ? (accentColor || '#e8a44a') : (baseColor || '#2a2e42')
-      ctx.globalAlpha = isPlayed ? (0.5 + peak * 0.4) : (0.25 + peak * 0.4)
+      ctx.fillStyle = baseColor || '#2a2e42'
+      ctx.globalAlpha = 0.25 + peak * 0.4
       ctx.fillRect(x, y, Math.max(1, barW - 0.8), barH)
     })
     ctx.globalAlpha = 1
-  }, [peaks, progress, duration, accentColor, baseColor])
-
+  }, [peaks, baseColor])
   return (
-    <canvas
-      ref={canvasRef}
-      width={500}
-      height={40}
-      style={{ display:'block', width:'100%', height:40, pointerEvents:'none' }}
-    />
+    <canvas ref={canvasRef} width={500} height={40}
+      style={{ display:'block', width:'100%', height:40, pointerEvents:'none' }} />
   )
 }
 
@@ -74,11 +64,12 @@ function FeaturedImagePreview({ path }) {
   )
 }
 
-export default function AdminPage({ clientRow, onPlay, currentTrack, onToast, theme, onThemeChange }) {
+export default function AdminPage({ clientRow, onPlay, playerProps, onToast, theme, onThemeChange }) {
   const [tab, setTab]         = useState('tracks')
   const [tracks, setTracks]   = useState([])
   const [clients, setClients] = useState([])
   const [loadingData, setLoadingData] = useState(true)
+  const { currentTrack } = playerProps || {}
 
   useEffect(() => { fetchAll() }, [])
 
@@ -114,7 +105,7 @@ export default function AdminPage({ clientRow, onPlay, currentTrack, onToast, th
         <button className={`tab ${tab === 'clients' ? 'active' : ''}`} onClick={() => setTab('clients')}>👤 Clients</button>
         <button className={`tab ${tab === 'theme' ? 'active' : ''}`} onClick={() => setTab('theme')}>🎨 Theme</button>
       </div>
-      {tab === 'tracks' && <TrackManager tracks={tracks} clients={clients} onRefresh={fetchAll} onPlay={onPlay} currentTrack={currentTrack} onToast={onToast} />}
+      {tab === 'tracks' && <TrackManager tracks={tracks} clients={clients} onRefresh={fetchAll} onPlay={onPlay} playerProps={playerProps} onToast={onToast} />}
       {tab === 'clients' && <ClientManager clients={clients} onRefresh={fetchAll} onToast={onToast} />}
       {tab === 'theme' && <ThemeManager theme={theme} onThemeChange={onThemeChange} onToast={onToast} />}
     </div>
@@ -122,7 +113,10 @@ export default function AdminPage({ clientRow, onPlay, currentTrack, onToast, th
 }
 
 // ─── Track Manager ─────────────────────────────────────────────────
-function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToast }) {
+function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast }) {
+  const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme } = playerProps || {}
+  const accentColor = theme?.amber || T.amber
+  const mutedColor  = theme?.border || T.border
   const [dragOver, setDragOver]       = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
   const [extracting, setExtracting]   = useState(false)
@@ -485,32 +479,26 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                     onClick={() => !isEditing && onPlay(track)}
                     style={{
                       gridTemplateColumns: search ? '40px 1fr auto auto' : '20px 40px 1fr auto auto',
-                      ...(isFeatured ? {borderColor: T.amber, borderLeftWidth:3} : {})
+                      alignItems: currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined ? 'start' : 'center',
+                      ...(isFeatured ? {borderColor: accentColor, borderLeftWidth:3} : {})
                     }}>
                     {/* Drag handle */}
                     {!search && (
-                      <div
-                        draggable
-                        onDragStart={e => { e.stopPropagation(); handleDragStart(i) }}
+                      <div draggable onDragStart={e => { e.stopPropagation(); handleDragStart(i) }}
                         onClick={e => e.stopPropagation()}
-                        style={{
-                          display:'flex', alignItems:'center', justifyContent:'center',
-                          cursor:'grab', fontSize:16, color:T.textSecondary,
-                          userSelect:'none', padding:'0 4px',
-                        }}
-                        title="Drag to reorder"
-                      >⠿</div>
+                        style={{ display:'flex', alignItems:'center', justifyContent:'center', cursor:'grab', fontSize:16, color:T.textSecondary, userSelect:'none', padding:'0 4px', paddingTop: currentTrack?.id===track.id ? 4 : 0 }}
+                        title="Drag to reorder">⠿</div>
                     )}
-                    <div className={`track-num ${currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined?'playing-indicator':''}`}>
+                    <div className={`track-num ${currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined?'playing-indicator':''}`} style={{paddingTop: currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined ? 4 : 0}}>
                       {currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined ? '♪' : i+1}
                     </div>
-                    {/* Title + waveform + tags all in one column */}
-                    <div style={{display:'flex', flexDirection:'column', justifyContent:'center', gap:4, overflow:'hidden', minWidth:0}}>
+                    {/* Main content */}
+                    <div style={{display:'flex', flexDirection:'column', gap:4, minWidth:0}}>
                       <div className={`track-name ${currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined?'playing':''}`}>
-                        {isFeatured && <span style={{fontSize:10, marginRight:6, color:T.amber}}>★</span>}
+                        {isFeatured && <span style={{fontSize:10, marginRight:6, color:accentColor}}>★</span>}
                         {track.title}
                         {versions.length > 0 && (
-                          <span style={{fontSize:10, fontFamily:'Space Mono,monospace', color:T.amber, marginLeft:8, opacity:0.8}}>
+                          <span style={{fontSize:10, fontFamily:'Space Mono,monospace', color:accentColor, marginLeft:8, opacity:0.8}}>
                             +{versions.length} version{versions.length!==1?'s':''}
                           </span>
                         )}
@@ -518,20 +506,34 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                       <div style={{fontSize:11, color:T.textMuted}}>
                         {assignedNames.length ? `→ ${assignedNames.join(', ')}` : '→ All clients'}
                       </div>
-                      {track.waveform_peaks?.length > 0 && (
-                        <WaveformBg
-                          peaks={track.waveform_peaks}
-                          progress={currentTrack?.id === track.id ? undefined : 0}
-                          duration={track.duration}
-                          accentColor={T.amber}
-                          baseColor={T.border}
-                        />
+                      {/* Inactive: static waveform */}
+                      {!(currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined) && track.waveform_peaks?.length > 0 && (
+                        <WaveformBg peaks={track.waveform_peaks} baseColor={mutedColor} />
                       )}
+                      {/* Active: inline player */}
+                      {currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined && (
+                        <div onClick={e => e.stopPropagation()}>
+                          <div className="inline-player">
+                            <button className="inline-play-btn"
+                              style={{background: accentColor, color: T.bg0}}
+                              onClick={e => { e.stopPropagation(); onTogglePlay() }}>
+                              {isPlaying ? '⏸' : '▶'}
+                            </button>
+                            <InlineSeekbar
+                              peaks={track.waveform_peaks || []}
+                              progress={progress} duration={duration}
+                              onSeek={onSeek} accentColor={accentColor} mutedColor={mutedColor} />
+                          </div>
+                          <div className="inline-times">
+                            <span className="time-label">{fmtTime(progress)}</span>
+                            <span className="time-label">{fmtTime(duration)}</span>
+                          </div>
+                        </div>
+                      )}
+                      {/* Tags */}
                       {track.tags?.length > 0 && (
                         <div style={{display:'flex', gap:4, overflow:'hidden', flexWrap:'nowrap'}}>
-                          {track.tags.map(tag => (
-                            <span key={tag} className="tag-inline" style={{flexShrink:0}}>#{tag}</span>
-                          ))}
+                          {track.tags.map(tag => <span key={tag} className="tag-inline" style={{flexShrink:0}}>#{tag}</span>)}
                         </div>
                       )}
                     </div>
