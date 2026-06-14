@@ -36,12 +36,11 @@ function WaveformBg({ peaks, progress, duration, accentColor, baseColor }) {
     const barW = W / peaks.length
     peaks.forEach((peak, i) => {
       const x = i * barW
-      // Thin bars — max height is 14px, centered in the canvas
-      const barH = Math.max(1, peak * 14)
+      const barH = Math.max(1, peak * 16)
       const y = (H - barH) / 2
       const isPlayed = x < playedX
       ctx.fillStyle = isPlayed ? (accentColor || '#e8a44a') : (baseColor || '#2a2e42')
-      ctx.globalAlpha = isPlayed ? (0.5 + peak * 0.4) : (0.25 + peak * 0.3)
+      ctx.globalAlpha = isPlayed ? (0.5 + peak * 0.4) : (0.25 + peak * 0.4)
       ctx.fillRect(x, y, Math.max(1, barW - 0.8), barH)
     })
     ctx.globalAlpha = 1
@@ -51,15 +50,8 @@ function WaveformBg({ peaks, progress, duration, accentColor, baseColor }) {
     <canvas
       ref={canvasRef}
       width={500}
-      height={44}
-      style={{
-        position: 'absolute',
-        top: 0,
-        right: 110,
-        width: '30%',
-        height: '100%',
-        pointerEvents: 'none',
-      }}
+      height={40}
+      style={{ display:'block', width:'100%', height:40, pointerEvents:'none' }}
     />
   )
 }
@@ -454,20 +446,10 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                   <div className={`track-row ${currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined?'playing':''} ${isEditing?'editing':''}`}
                     onClick={() => !isEditing && onPlay(track)}
                     style={{
-                      position: 'relative',
-                      gridTemplateColumns: search ? '40px 1fr auto auto' : '20px 40px 1fr auto auto',
+                      gridTemplateColumns: search ? '40px 1fr 1fr auto auto' : '20px 40px 1fr 1fr auto auto',
                       ...(isFeatured ? {borderColor: T.amber, borderLeftWidth:3} : {})
                     }}>
-                    {track.waveform_peaks?.length > 0 && (
-                      <WaveformBg
-                        peaks={track.waveform_peaks}
-                        progress={currentTrack?.id === track.id ? undefined : 0}
-                        duration={track.duration}
-                        accentColor={T.amber}
-                        baseColor={T.border}
-                      />
-                    )}
-                    {/* Drag handle — only shown when not searching */}
+                    {/* Drag handle */}
                     {!search && (
                       <div
                         draggable
@@ -500,6 +482,19 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                           {track.tags?.map(tag => <span key={tag} className="tag-inline">#{tag}</span>)}
                         </div>
                       </div>
+                    </div>
+                    {/* Waveform column */}
+                    <div style={{display:'flex', alignItems:'center', overflow:'hidden', padding:'0 12px'}}>
+                      {track.waveform_peaks?.length > 0
+                        ? <WaveformBg
+                            peaks={track.waveform_peaks}
+                            progress={currentTrack?.id === track.id ? undefined : 0}
+                            duration={track.duration}
+                            accentColor={T.amber}
+                            baseColor={T.border}
+                          />
+                        : null
+                      }
                     </div>
                     <TrackMeta size={track.file_size} duration={track.duration} />
                     <div className="track-actions" onClick={e => e.stopPropagation()}>

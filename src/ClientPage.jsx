@@ -15,7 +15,7 @@ function TrackMeta({ size, duration }) {
   return <div className="track-duration">{parts.join(' · ')}</div>
 }
 
-function WaveformBg({ peaks, accentColor, baseColor }) {
+function WaveformBg({ peaks, baseColor }) {
   const canvasRef = useRef(null)
 
   useEffect(() => {
@@ -28,10 +28,10 @@ function WaveformBg({ peaks, accentColor, baseColor }) {
     const barW = W / peaks.length
     peaks.forEach((peak, i) => {
       const x = i * barW
-      const barH = Math.max(1, peak * 14)
+      const barH = Math.max(1, peak * 16)
       const y = (H - barH) / 2
       ctx.fillStyle = baseColor || '#2a2e42'
-      ctx.globalAlpha = 0.25 + peak * 0.3
+      ctx.globalAlpha = 0.25 + peak * 0.4
       ctx.fillRect(x, y, Math.max(1, barW - 0.8), barH)
     })
     ctx.globalAlpha = 1
@@ -41,15 +41,8 @@ function WaveformBg({ peaks, accentColor, baseColor }) {
     <canvas
       ref={canvasRef}
       width={500}
-      height={44}
-      style={{
-        position: 'absolute',
-        top: 0,
-        right: 110,
-        width: '30%',
-        height: '100%',
-        pointerEvents: 'none',
-      }}
+      height={40}
+      style={{ display:'block', width:'100%', height:40, pointerEvents:'none' }}
     />
   )
 }
@@ -111,14 +104,11 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
         <div
           className={`track-row ${isMainPlaying ? 'playing' : ''}`}
           style={{
-            position: 'relative',
+            gridTemplateColumns: '40px 1fr 1fr auto',
             ...(isFeaturedSection ? { borderColor: T.amberDim, background: T.bg2 } : {})
           }}
           onClick={() => onPlay(track)}
         >
-          {track.waveform_peaks?.length > 0 && (
-            <WaveformBg peaks={track.waveform_peaks} baseColor={T.border} />
-          )}
           <div className={`track-num ${isMainPlaying ? 'playing-indicator' : ''}`}>
             {isMainPlaying ? '♪' : isFeaturedSection ? '★' : i + 1}
           </div>
@@ -137,16 +127,25 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
               </div>
             </div>
           </div>
-          <TrackMeta size={track.file_size} duration={track.duration} />
-          <div className="track-actions" onClick={e => e.stopPropagation()}>
-            {versions.length > 0 && (
-              <button className={`btn-icon ${isExpanded ? 'edit-active' : ''}`} title="Show versions"
-                onClick={() => setExpandedId(isExpanded ? null : track.id)}>
-                {isExpanded ? '▴' : '▾'}
-              </button>
-            )}
-            <button className="btn-icon" title="Preview" onClick={() => onPlay(track)}>▶</button>
-            <button className="btn-icon" title="Download" onClick={() => download(track)}>↓</button>
+          {/* Waveform column */}
+          <div style={{display:'flex', alignItems:'center', overflow:'hidden', padding:'0 12px'}}>
+            {track.waveform_peaks?.length > 0
+              ? <WaveformBg peaks={track.waveform_peaks} baseColor={T.border} />
+              : null
+            }
+          </div>
+          <div style={{display:'flex', alignItems:'center', gap:12}}>
+            <div className="track-duration">{fmtDuration(track.duration)}</div>
+            <div className="track-actions" onClick={e => e.stopPropagation()}>
+              {versions.length > 0 && (
+                <button className={`btn-icon ${isExpanded ? 'edit-active' : ''}`} title="Show versions"
+                  onClick={() => setExpandedId(isExpanded ? null : track.id)}>
+                  {isExpanded ? '▴' : '▾'}
+                </button>
+              )}
+              <button className="btn-icon" title="Preview" onClick={() => onPlay(track)}>▶</button>
+              <button className="btn-icon" title="Download" onClick={() => download(track)}>↓</button>
+            </div>
           </div>
         </div>
 
