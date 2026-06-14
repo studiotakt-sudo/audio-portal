@@ -446,7 +446,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                   <div className={`track-row ${currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined?'playing':''} ${isEditing?'editing':''}`}
                     onClick={() => !isEditing && onPlay(track)}
                     style={{
-                      gridTemplateColumns: search ? '40px 1fr 1fr auto auto' : '20px 40px 1fr 1fr auto auto',
+                      gridTemplateColumns: search ? '40px minmax(120px, 200px) 1fr auto auto' : '20px 40px minmax(120px, 200px) 1fr auto auto',
                       ...(isFeatured ? {borderColor: T.amber, borderLeftWidth:3} : {})
                     }}>
                     {/* Drag handle */}
@@ -484,7 +484,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                       </div>
                     </div>
                     {/* Waveform column */}
-                    <div style={{display:'flex', alignItems:'center', overflow:'hidden', padding:'0 12px'}}>
+                    <div style={{display:'flex', alignItems:'center', overflow:'hidden'}}>
                       {track.waveform_peaks?.length > 0
                         ? <WaveformBg
                             peaks={track.waveform_peaks}

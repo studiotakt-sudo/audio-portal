@@ -104,7 +104,7 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
         <div
           className={`track-row ${isMainPlaying ? 'playing' : ''}`}
           style={{
-            gridTemplateColumns: '40px 1fr 1fr auto',
+            gridTemplateColumns: '40px minmax(120px, 200px) 1fr auto',
             ...(isFeaturedSection ? { borderColor: T.amberDim, background: T.bg2 } : {})
           }}
           onClick={() => onPlay(track)}
@@ -127,8 +127,7 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
               </div>
             </div>
           </div>
-          {/* Waveform column */}
-          <div style={{display:'flex', alignItems:'center', overflow:'hidden', padding:'0 12px'}}>
+          <div style={{display:'flex', alignItems:'center', overflow:'hidden'}}>
             {track.waveform_peaks?.length > 0
               ? <WaveformBg peaks={track.waveform_peaks} baseColor={T.border} />
               : null
