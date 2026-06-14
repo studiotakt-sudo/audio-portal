@@ -168,11 +168,14 @@ export function InlineSeekbar({ peaks, progress, duration, onSeek, accentColor, 
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    onSeek((e.clientX - rect.left) / rect.width * duration)
+    const ratio = (e.clientX - rect.left) / rect.width  // use rendered width, not canvas.width
+    onSeek(Math.max(0, Math.min(1, ratio)) * duration)
   }
 
   return (
-    <div className="inline-waveform" onClick={e => { e.stopPropagation(); handleClick(e) }}>
+    <div className="inline-waveform"
+      onClick={e => { e.stopPropagation(); handleClick(e) }}
+      style={{cursor: duration ? 'pointer' : 'default', paddingTop:6, paddingBottom:6, marginTop:-6, marginBottom:-6}}>
       <canvas ref={canvasRef} width={800} height={36} style={{display:'block', width:'100%', height:36}} />
       {duration > 0 && (
         <div className="inline-playhead" style={{
@@ -230,17 +233,30 @@ export default function App() {
   const playTrack = useCallback(async (track) => {
     const el = audioRef.current
     if (!el) return
-    // If same track, just toggle
-    if (currentTrack?.id === track.id && currentTrack?.versionIdx === track.versionIdx) {
-      if (isPlaying) el.pause(); else el.play().catch(console.error)
+
+    // Same track — just toggle play/pause, no flicker
+    const isSame = currentTrack?.id === track.id && currentTrack?.versionIdx === track.versionIdx
+    if (isSame) {
+      if (isPlaying) el.pause()
+      else el.play().catch(console.error)
       return
     }
+
+    // Different track — load and play
     const { data, error } = await supabase.storage.from('audio-tracks').createSignedUrl(track.file_path, 3600)
     if (error || !data?.signedUrl) { showToast('Could not load audio', 'error'); return }
+
+    // Update state before touching audio element to avoid flicker
+    setCurrentTrack(track)
+    setIsPlaying(false)
+    setProgress(0)
+    setDuration(0)
     setSignedUrl(data.signedUrl)
-    el.pause(); el.src = data.signedUrl; el.load()
+
+    el.pause()
+    el.src = data.signedUrl
+    el.load()
     el.play().catch(console.error)
-    setCurrentTrack(track); setIsPlaying(true); setProgress(0); setDuration(0)
   }, [currentTrack, isPlaying])
 
   const togglePlay = useCallback(() => {
