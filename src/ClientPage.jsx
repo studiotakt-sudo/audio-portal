@@ -182,7 +182,7 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
         <div
           className={`track-row ${isMainPlaying ? 'playing' : ''}`}
           style={{
-            gridTemplateColumns: '40px minmax(120px, 200px) 1fr auto',
+            gridTemplateColumns: '40px 1fr auto',
             ...(isFeaturedSection ? { borderColor: T.amberDim, background: T.bg2 } : {})
           }}
           onClick={() => onPlay(track)}
@@ -190,7 +190,8 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
           <div className={`track-num ${isMainPlaying ? 'playing-indicator' : ''}`}>
             {isMainPlaying ? '♪' : isFeaturedSection ? '★' : i + 1}
           </div>
-          <div className="track-info">
+          {/* Title + waveform + tags all in one column */}
+          <div style={{display:'flex', flexDirection:'column', justifyContent:'center', gap:4, overflow:'hidden', minWidth:0}}>
             <div className={`track-name ${isMainPlaying ? 'playing' : ''}`}>
               {track.title}
               {versions.length > 0 && (
@@ -199,13 +200,9 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
                 </span>
               )}
             </div>
-          </div>
-          {/* Waveform + tags column */}
-          <div style={{display:'flex', flexDirection:'column', justifyContent:'center', overflow:'hidden', gap:4}}>
-            {track.waveform_peaks?.length > 0
-              ? <WaveformBg peaks={track.waveform_peaks} baseColor={T.border} />
-              : null
-            }
+            {track.waveform_peaks?.length > 0 && (
+              <WaveformBg peaks={track.waveform_peaks} baseColor={T.border} />
+            )}
             {track.tags?.length > 0 && (
               <div style={{display:'flex', gap:4, overflow:'hidden', flexWrap:'nowrap'}}>
                 {track.tags.map(tag => (

@@ -484,7 +484,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                   <div className={`track-row ${currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined?'playing':''} ${isEditing?'editing':''}`}
                     onClick={() => !isEditing && onPlay(track)}
                     style={{
-                      gridTemplateColumns: search ? '40px minmax(120px, 200px) 1fr auto auto' : '20px 40px minmax(120px, 200px) 1fr auto auto',
+                      gridTemplateColumns: search ? '40px 1fr auto auto' : '20px 40px 1fr auto auto',
                       ...(isFeatured ? {borderColor: T.amber, borderLeftWidth:3} : {})
                     }}>
                     {/* Drag handle */}
@@ -504,7 +504,8 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                     <div className={`track-num ${currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined?'playing-indicator':''}`}>
                       {currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined ? '♪' : i+1}
                     </div>
-                    <div className="track-info">
+                    {/* Title + waveform + tags all in one column */}
+                    <div style={{display:'flex', flexDirection:'column', justifyContent:'center', gap:4, overflow:'hidden', minWidth:0}}>
                       <div className={`track-name ${currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined?'playing':''}`}>
                         {isFeatured && <span style={{fontSize:10, marginRight:6, color:T.amber}}>★</span>}
                         {track.title}
@@ -514,22 +515,18 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                           </span>
                         )}
                       </div>
-                      <div className="track-meta">
-                        <span className="track-uploader">{assignedNames.length ? `→ ${assignedNames.join(', ')}` : '→ All clients'}</span>
+                      <div style={{fontSize:11, color:T.textMuted}}>
+                        {assignedNames.length ? `→ ${assignedNames.join(', ')}` : '→ All clients'}
                       </div>
-                    </div>
-                    {/* Waveform column */}
-                    <div style={{display:'flex', flexDirection:'column', justifyContent:'center', overflow:'hidden', gap:4}}>
-                      {track.waveform_peaks?.length > 0
-                        ? <WaveformBg
-                            peaks={track.waveform_peaks}
-                            progress={currentTrack?.id === track.id ? undefined : 0}
-                            duration={track.duration}
-                            accentColor={T.amber}
-                            baseColor={T.border}
-                          />
-                        : null
-                      }
+                      {track.waveform_peaks?.length > 0 && (
+                        <WaveformBg
+                          peaks={track.waveform_peaks}
+                          progress={currentTrack?.id === track.id ? undefined : 0}
+                          duration={track.duration}
+                          accentColor={T.amber}
+                          baseColor={T.border}
+                        />
+                      )}
                       {track.tags?.length > 0 && (
                         <div style={{display:'flex', gap:4, overflow:'hidden', flexWrap:'nowrap'}}>
                           {track.tags.map(tag => (
