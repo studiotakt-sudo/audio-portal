@@ -56,7 +56,23 @@ function WaveformBg({ peaks, progress, duration, accentColor, baseColor }) {
   )
 }
 
-export default function AdminPage({ clientRow, onPlay, currentTrack, onToast, theme, onThemeChange }) {
+// Preview of a stored featured image
+function FeaturedImagePreview({ path }) {
+  const [url, setUrl] = useState(null)
+  useEffect(() => {
+    if (!path) return
+    supabase.storage.from('featured-images').createSignedUrl(path, 3600)
+      .then(({ data }) => { if (data?.signedUrl) setUrl(data.signedUrl) })
+  }, [path])
+  if (!url) return null
+  return (
+    <div style={{
+      width:80, height:56, borderRadius:4, overflow:'hidden',
+      border:`1px solid ${T.border}`, flexShrink:0,
+      background: `url(${url}) center/cover`,
+    }} />
+  )
+} clientRow, onPlay, currentTrack, onToast, theme, onThemeChange }) {
   const [tab, setTab]         = useState('tracks')
   const [tracks, setTracks]   = useState([])
   const [clients, setClients] = useState([])
@@ -120,7 +136,10 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
   const [versionFile, setVersionFile]   = useState(null)
   const [versionLabel, setVersionLabel] = useState('')
   const [versionUploading, setVersionUploading] = useState(false)
+  const [featuredImageFile, setFeaturedImageFile] = useState(null)
+  const [featuredImageUploading, setFeaturedImageUploading] = useState(false)
   const versionFileRef = useRef()
+  const featuredImageRef = useRef()
 
   // drag-to-reorder state
   const dragItem    = useRef(null)
@@ -273,12 +292,14 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
     if (editingId === track.id) { setEditingId(null); return }
     setEditingId(track.id)
     setVersionFile(null); setVersionLabel('')
+    setFeaturedImageFile(null)
     setEditState({
       title: track.title,
       tags: [...(track.tags || [])],
       tagInput: '',
       assignedTo: [...(track.assigned_to || [])],
       versions: [...(track.versions || [])],
+      featured_image: track.featured_image || null,
     })
   }
   const editAddTag = () => {
@@ -312,10 +333,25 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
   const removeVersion = (idx) => setEditState(s => ({ ...s, versions: s.versions.filter((_, i) => i !== idx) }))
 
   const saveEdit = async (trackId) => {
+    let featuredImagePath = editState.featured_image
+    // Upload new featured image if one was selected
+    if (featuredImageFile) {
+      setFeaturedImageUploading(true)
+      const imgPath = `${Date.now()}-${featuredImageFile.name.replace(/\s+/g, '_')}`
+      const { error: imgError } = await supabase.storage
+        .from('featured-images').upload(imgPath, featuredImageFile, { contentType: featuredImageFile.type })
+      if (!imgError) featuredImagePath = imgPath
+      setFeaturedImageUploading(false)
+    }
     const { error } = await supabase.from('tracks').update({
-      title: editState.title, tags: editState.tags, assigned_to: editState.assignedTo, versions: editState.versions,
+      title: editState.title,
+      tags: editState.tags,
+      assigned_to: editState.assignedTo,
+      versions: editState.versions,
+      featured_image: featuredImagePath,
     }).eq('id', trackId)
     if (error) { onToast('Save failed', 'error'); return }
+    setFeaturedImageFile(null)
     await onRefresh(); setEditingId(null); onToast('Track updated')
   }
 
@@ -615,9 +651,47 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                             </button>
                           </div>
                         </div>
+                        {/* Featured image — only shown when track is featured */}
+                        {isFeatured && (
+                          <div style={{gridColumn:'1 / -1', borderTop:`1px solid ${T.border}`, paddingTop:16}}>
+                            <div className="track-edit-label">Featured card background image</div>
+                            <div style={{display:'flex', gap:12, alignItems:'center', marginTop:8}}>
+                              {editState.featured_image && !featuredImageFile && (
+                                <FeaturedImagePreview path={editState.featured_image} />
+                              )}
+                              {featuredImageFile && (
+                                <div style={{
+                                  width:80, height:56, borderRadius:4, overflow:'hidden',
+                                  border:`1px solid ${T.border}`, flexShrink:0,
+                                  background: `url(${URL.createObjectURL(featuredImageFile)}) center/cover`,
+                                }} />
+                              )}
+                              <div style={{flex:1}}>
+                                <input className="input" readOnly
+                                  value={featuredImageFile ? featuredImageFile.name : editState.featured_image ? 'Image set ✓' : 'No image'}
+                                  placeholder="No image chosen"
+                                  onClick={() => featuredImageRef.current.click()}
+                                  style={{cursor:'pointer'}} />
+                                <input ref={featuredImageRef} type="file" accept="image/*" style={{display:'none'}}
+                                  onChange={e => setFeaturedImageFile(e.target.files?.[0] || null)} />
+                                <div style={{fontSize:11, color:T.textMuted, marginTop:4}}>
+                                  JPG or PNG recommended · will be shown as card background
+                                </div>
+                              </div>
+                              {editState.featured_image && (
+                                <button className="btn btn-ghost btn-sm" onClick={() => setEditState(s => ({...s, featured_image: null}))}>
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="track-edit-actions">
-                        <button className="btn btn-primary btn-sm" onClick={() => saveEdit(track.id)}>Save changes</button>
+                        <button className="btn btn-primary btn-sm" onClick={() => saveEdit(track.id)}
+                          disabled={featuredImageUploading}>
+                          {featuredImageUploading ? <><span className="spinner"/>Uploading image…</> : 'Save changes'}
+                        </button>
                         <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
                       </div>
                     </div>

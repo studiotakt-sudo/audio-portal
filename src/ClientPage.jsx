@@ -47,6 +47,84 @@ function WaveformBg({ peaks, baseColor }) {
   )
 }
 
+
+function FeaturedCard({ track, isPlaying, onPlay }) {
+  const [bgUrl, setBgUrl] = useState(null)
+
+  useEffect(() => {
+    if (!track.featured_image) return
+    supabase.storage.from('featured-images').createSignedUrl(track.featured_image, 3600)
+      .then(({ data }) => { if (data?.signedUrl) setBgUrl(data.signedUrl) })
+  }, [track.featured_image])
+
+  return (
+    <div
+      onClick={onPlay}
+      style={{
+        position: 'relative',
+        height: 180,
+        borderRadius: 6,
+        overflow: 'hidden',
+        cursor: 'pointer',
+        border: `1px solid ${isPlaying ? T.amber : T.border}`,
+        background: bgUrl ? 'transparent' : T.bg2,
+        transition: 'all 0.2s',
+      }}
+    >
+      {bgUrl && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          backgroundImage: `url(${bgUrl})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }} />
+      )}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: bgUrl
+          ? 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 60%, rgba(0,0,0,0.1) 100%)'
+          : `linear-gradient(to top, ${T.bg0} 0%, transparent 100%)`,
+      }} />
+      <div style={{
+        position: 'absolute', top: 16, right: 16,
+        width: 36, height: 36, borderRadius: '50%',
+        background: isPlaying ? T.amber : 'rgba(255,255,255,0.15)',
+        backdropFilter: 'blur(4px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 14, color: isPlaying ? T.bg0 : '#fff',
+        transition: 'all 0.15s',
+        border: `1px solid ${isPlaying ? T.amber : 'rgba(255,255,255,0.3)'}`,
+      }}>
+        {isPlaying ? '♪' : '▶'}
+      </div>
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '16px' }}>
+        <div style={{
+          fontSize: 14, fontWeight: 600, color: '#ffffff',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          marginBottom: 4, textShadow: '0 1px 4px rgba(0,0,0,0.5)',
+        }}>
+          {track.title}
+        </div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Space Mono, monospace' }}>
+          {fmtDuration(track.duration)}
+        </div>
+        {track.tags?.length > 0 && (
+          <div style={{display:'flex', gap:4, flexWrap:'wrap', marginTop:6}}>
+            {track.tags.slice(0,3).map(tag => (
+              <span key={tag} style={{
+                fontFamily: 'Space Mono, monospace', fontSize: 10,
+                padding: '1px 6px', borderRadius: 1,
+                background: 'rgba(255,255,255,0.15)',
+                color: 'rgba(255,255,255,0.8)',
+              }}>#{tag}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function ClientPage({ clientRow, onPlay, currentTrack, onToast }) {
   const [tracks, setTracks]       = useState([])
   const [loading, setLoading]     = useState(true)
@@ -193,44 +271,14 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
                 <span style={{color:T.amber}}>★</span> Featured
               </div>
               <div style={{display:'grid', gridTemplateColumns:`repeat(${featuredTracks.length}, 1fr)`, gap:12}}>
-                {featuredTracks.map(track => {
-                  const isPlaying = currentTrack?.id === track.id && currentTrack?.versionIdx === undefined
-                  return (
-                    <div key={track.id}
-                      onClick={() => onPlay(track)}
-                      style={{
-                        background: T.bg1,
-                        border: `1px solid ${isPlaying ? T.amber : T.border}`,
-                        borderRadius: 6,
-                        padding: '20px 16px',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      <div style={{
-                        width: 40, height: 40, borderRadius: '50%',
-                        background: isPlaying ? T.amber : T.bg3,
-                        border: `1px solid ${T.border}`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 16, marginBottom: 12, color: isPlaying ? T.bg0 : T.textMuted,
-                        transition: 'all 0.15s',
-                      }}>
-                        {isPlaying ? '♪' : '▶'}
-                      </div>
-                      <div style={{fontSize:14, fontWeight:600, color: isPlaying ? T.amber : T.textPrimary, marginBottom:4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
-                        {track.title}
-                      </div>
-                      <div style={{fontSize:11, color:T.textMuted, fontFamily:'Space Mono,monospace'}}>
-                        {fmtDuration(track.duration)}
-                      </div>
-                      {track.tags?.length > 0 && (
-                        <div style={{display:'flex', gap:4, flexWrap:'wrap', marginTop:8}}>
-                          {track.tags.slice(0,3).map(tag => <span key={tag} className="tag-inline">#{tag}</span>)}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+                {featuredTracks.map(track => (
+                  <FeaturedCard
+                    key={track.id}
+                    track={track}
+                    isPlaying={currentTrack?.id === track.id && currentTrack?.versionIdx === undefined}
+                    onPlay={() => onPlay(track)}
+                  />
+                ))}
               </div>
             </div>
           )}
