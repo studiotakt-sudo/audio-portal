@@ -516,13 +516,10 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                       </div>
                       <div className="track-meta">
                         <span className="track-uploader">{assignedNames.length ? `→ ${assignedNames.join(', ')}` : '→ All clients'}</span>
-                        <div className="track-tags-inline">
-                          {track.tags?.map(tag => <span key={tag} className="tag-inline">#{tag}</span>)}
-                        </div>
                       </div>
                     </div>
                     {/* Waveform column */}
-                    <div style={{display:'flex', alignItems:'center', overflow:'hidden'}}>
+                    <div style={{display:'flex', flexDirection:'column', justifyContent:'center', overflow:'hidden', gap:4}}>
                       {track.waveform_peaks?.length > 0
                         ? <WaveformBg
                             peaks={track.waveform_peaks}
@@ -533,6 +530,13 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
                           />
                         : null
                       }
+                      {track.tags?.length > 0 && (
+                        <div style={{display:'flex', gap:4, overflow:'hidden', flexWrap:'nowrap'}}>
+                          {track.tags.map(tag => (
+                            <span key={tag} className="tag-inline" style={{flexShrink:0}}>#{tag}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <TrackMeta size={track.file_size} duration={track.duration} />
                     <div className="track-actions" onClick={e => e.stopPropagation()}>

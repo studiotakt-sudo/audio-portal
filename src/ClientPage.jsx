@@ -199,17 +199,20 @@ export default function ClientPage({ clientRow, onPlay, currentTrack, onToast })
                 </span>
               )}
             </div>
-            <div className="track-meta">
-              <div className="track-tags-inline">
-                {track.tags?.map(tag => <span key={tag} className="tag-inline">#{tag}</span>)}
-              </div>
-            </div>
           </div>
-          <div style={{display:'flex', alignItems:'center', overflow:'hidden'}}>
+          {/* Waveform + tags column */}
+          <div style={{display:'flex', flexDirection:'column', justifyContent:'center', overflow:'hidden', gap:4}}>
             {track.waveform_peaks?.length > 0
               ? <WaveformBg peaks={track.waveform_peaks} baseColor={T.border} />
               : null
             }
+            {track.tags?.length > 0 && (
+              <div style={{display:'flex', gap:4, overflow:'hidden', flexWrap:'nowrap'}}>
+                {track.tags.map(tag => (
+                  <span key={tag} className="tag-inline" style={{flexShrink:0}}>#{tag}</span>
+                ))}
+              </div>
+            )}
           </div>
           <div style={{display:'flex', alignItems:'center', gap:12}}>
             <div className="track-duration">{fmtDuration(track.duration)}</div>
