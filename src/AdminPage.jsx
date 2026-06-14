@@ -36,12 +36,13 @@ function WaveformBg({ peaks, progress, duration, accentColor, baseColor }) {
     const barW = W / peaks.length
     peaks.forEach((peak, i) => {
       const x = i * barW
-      const barH = Math.max(1, peak * H * 0.75)
+      // Thin bars — max height is 14px, centered in the canvas
+      const barH = Math.max(1, peak * 14)
       const y = (H - barH) / 2
       const isPlayed = x < playedX
       ctx.fillStyle = isPlayed ? (accentColor || '#e8a44a') : (baseColor || '#2a2e42')
-      ctx.globalAlpha = isPlayed ? (0.3 + peak * 0.35) : (0.12 + peak * 0.18)
-      ctx.fillRect(x, y, Math.max(1, barW - 0.5), barH)
+      ctx.globalAlpha = isPlayed ? (0.5 + peak * 0.4) : (0.25 + peak * 0.3)
+      ctx.fillRect(x, y, Math.max(1, barW - 0.8), barH)
     })
     ctx.globalAlpha = 1
   }, [peaks, progress, duration, accentColor, baseColor])
@@ -49,17 +50,15 @@ function WaveformBg({ peaks, progress, duration, accentColor, baseColor }) {
   return (
     <canvas
       ref={canvasRef}
-      width={400}
+      width={500}
       height={44}
       style={{
         position: 'absolute',
         top: 0,
-        right: 100,
-        width: '35%',
+        right: 110,
+        width: '30%',
         height: '100%',
         pointerEvents: 'none',
-        borderRadius: 4,
-        opacity: 0.9,
       }}
     />
   )

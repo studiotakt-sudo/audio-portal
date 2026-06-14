@@ -28,11 +28,11 @@ function WaveformBg({ peaks, accentColor, baseColor }) {
     const barW = W / peaks.length
     peaks.forEach((peak, i) => {
       const x = i * barW
-      const barH = Math.max(1, peak * H * 0.75)
+      const barH = Math.max(1, peak * 14)
       const y = (H - barH) / 2
       ctx.fillStyle = baseColor || '#2a2e42'
-      ctx.globalAlpha = 0.12 + peak * 0.18
-      ctx.fillRect(x, y, Math.max(1, barW - 0.5), barH)
+      ctx.globalAlpha = 0.25 + peak * 0.3
+      ctx.fillRect(x, y, Math.max(1, barW - 0.8), barH)
     })
     ctx.globalAlpha = 1
   }, [peaks, baseColor])
@@ -40,17 +40,15 @@ function WaveformBg({ peaks, accentColor, baseColor }) {
   return (
     <canvas
       ref={canvasRef}
-      width={400}
+      width={500}
       height={44}
       style={{
         position: 'absolute',
         top: 0,
-        right: 100,
-        width: '35%',
+        right: 110,
+        width: '30%',
         height: '100%',
         pointerEvents: 'none',
-        borderRadius: 4,
-        opacity: 0.9,
       }}
     />
   )
