@@ -72,7 +72,9 @@ function FeaturedImagePreview({ path }) {
       background: `url(${url}) center/cover`,
     }} />
   )
-} clientRow, onPlay, currentTrack, onToast, theme, onThemeChange }) {
+}
+
+export default function AdminPage({ clientRow, onPlay, currentTrack, onToast, theme, onThemeChange }) {
   const [tab, setTab]         = useState('tracks')
   const [tracks, setTracks]   = useState([])
   const [clients, setClients] = useState([])
