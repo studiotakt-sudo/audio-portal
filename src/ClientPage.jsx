@@ -68,7 +68,7 @@ function FeaturedCard({ track, isPlaying, onPlay }) {
           {track.title}
         </div>
         <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', fontFamily:'Space Mono,monospace' }}>
-          {fmtDuration(track.duration)}
+          {[fmtDuration(track.duration), track.bpm ? `${track.bpm} BPM` : null].filter(Boolean).join(' · ')}
         </div>
         {track.tags?.length > 0 && (
           <div style={{display:'flex', gap:4, flexWrap:'wrap', marginTop:6}}>
@@ -197,7 +197,9 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
 
           {/* Actions */}
           <div style={{display:'flex', alignItems:'center', gap:8, paddingTop: isActive ? 2 : 0}} onClick={e => e.stopPropagation()}>
-            <div className="track-duration">{fmtDuration(track.duration)}</div>
+            <div className="track-duration">
+                {[fmtDuration(track.duration), track.bpm ? `${track.bpm} BPM` : null].filter(Boolean).join(' · ')}
+              </div>
             {versions.length > 0 && (
               <button className={`btn-icon ${isExpanded ? 'edit-active' : ''}`} title="Show versions"
                 onClick={() => setExpandedId(isExpanded ? null : track.id)}>

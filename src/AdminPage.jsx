@@ -14,9 +14,10 @@ function fmtDuration(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-function TrackMeta({ size, duration }) {
+function TrackMeta({ size, duration, bpm }) {
   const parts = []
   if (duration) parts.push(fmtDuration(duration))
+  if (bpm) parts.push(`${bpm} BPM`)
   if (size) parts.push((size / 1024 / 1024).toFixed(1) + ' MB')
   return <div className="track-duration">{parts.join(' · ')}</div>
 }
@@ -120,7 +121,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
   const [dragOver, setDragOver]       = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
   const [extracting, setExtracting]   = useState(false)
-  const [form, setForm]               = useState({ title:'', tags:[], tagInput:'', assignedTo:[] })
+  const [form, setForm]               = useState({ title:'', tags:[], tagInput:'', assignedTo:[], bpm:'' })
   const [uploading, setUploading]     = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [search, setSearch]           = useState('')
@@ -233,6 +234,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       mime_type: file.type,
       duration: duration || null,
       waveform_peaks: waveformPeaks || [],
+      bpm: form.bpm ? parseInt(form.bpm) : null,
       tags: form.tags,
       assigned_to: form.assignedTo.length ? form.assignedTo : clientList.map(c => c.id),
       versions: [],
@@ -243,7 +245,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
     setUploadProgress(100)
     await onRefresh()
     setPendingFile(null)
-    setForm({ title:'', tags:[], tagInput:'', assignedTo:[] })
+    setForm({ title:'', tags:[], tagInput:'', assignedTo:[], bpm:'' })
     setUploading(false)
     onToast('Track uploaded successfully')
   }
@@ -296,6 +298,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       assignedTo: [...(track.assigned_to || [])],
       versions: [...(track.versions || [])],
       featured_image: track.featured_image || null,
+      bpm: track.bpm || '',
     })
   }
   const editAddTag = () => {
@@ -345,6 +348,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       assigned_to: editState.assignedTo,
       versions: editState.versions,
       featured_image: featuredImagePath,
+      bpm: editState.bpm ? parseInt(editState.bpm) : null,
     }).eq('id', trackId)
     if (error) { onToast('Save failed', 'error'); return }
     setFeaturedImageFile(null)
@@ -402,10 +406,15 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
             </div>
             <button className="btn btn-ghost btn-sm" onClick={() => setPendingFile(null)}>Cancel</button>
           </div>
-          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+          <div style={{display:'grid', gridTemplateColumns:'1fr auto 1fr', gap:16}}>
             <div className="field">
               <label className="label">Track title</label>
               <input className="input" value={form.title} onChange={e => setForm(f => ({...f, title:e.target.value}))} />
+            </div>
+            <div className="field" style={{width:90}}>
+              <label className="label">BPM</label>
+              <input className="input" type="number" placeholder="120" min="1" max="300"
+                value={form.bpm} onChange={e => setForm(f => ({...f, bpm:e.target.value}))} />
             </div>
             <div className="field">
               <label className="label">Assign to clients</label>
@@ -537,7 +546,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                         </div>
                       )}
                     </div>
-                    <TrackMeta size={track.file_size} duration={track.duration} />
+                    <TrackMeta size={track.file_size} duration={track.duration} bpm={track.bpm} />
                     <div className="track-actions" onClick={e => e.stopPropagation()}>
                       <button
                         className={`btn-icon ${isFeatured ? 'edit-active' : ''}`}
@@ -578,8 +587,9 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                           <input className="input" value={editState.title}
                             onChange={e => setEditState(s => ({...s, title:e.target.value}))} />
                         </div>
-                        <div>
-                          <div className="track-edit-label">Client access</div>
+                        <div style={{display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'end'}}>
+                          <div>
+                            <div className="track-edit-label">Client access</div>
                           <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
                             {clientList.length === 0
                               ? <span style={{fontSize:12, color:T.textMuted}}>No clients yet</span>
@@ -598,6 +608,13 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                           {clientList.length>0 && editState.assignedTo.length===0 && (
                             <div style={{fontSize:11, color:T.amber, marginTop:6, fontFamily:'Space Mono,monospace'}}>⚠ No clients selected</div>
                           )}
+                          </div>
+                          <div>
+                            <div className="track-edit-label">BPM</div>
+                            <input className="input" type="number" placeholder="120" min="1" max="300" style={{width:80}}
+                              value={editState.bpm}
+                              onChange={e => setEditState(s => ({...s, bpm:e.target.value}))} />
+                          </div>
                         </div>
                         <div style={{gridColumn:'1 / -1'}}>
                           <div className="track-edit-label">Tags</div>
