@@ -65,9 +65,11 @@ export function buildCss(t) {
   .tag-filter.active { background: ${t.bg0}; border-color: ${t.amber}; color: ${t.amber}; }
   .tag-filter-label { font-size: 11px; color: ${t.textMuted}; align-self: center; font-family: 'Space Mono', monospace; white-space: nowrap; }
   .track-list { display: flex; flex-direction: column; gap: 2px; }
-  .track-row { display: grid; grid-template-columns: 40px 1fr auto; gap: 16px; align-items: center; background: ${t.bg1}; border: 1px solid transparent; border-radius: 4px; padding: 12px 16px; transition: all 0.2s; cursor: pointer; }
-  .track-row:hover { border-color: ${t.border}; background: ${t.bg2}; }
+  .track-row { display: grid; grid-template-columns: 40px 1fr auto; gap: 16px; align-items: center; background: ${t.bg1}; border: 1px solid transparent; border-radius: 4px; padding: 12px 16px; transition: border-color 0.15s; cursor: pointer; }
+  .track-row:hover { border-color: ${t.border}; }
   .track-row.playing { border-color: ${t.amberDim}; background: ${t.bg2}; cursor: default; }
+  .track-row.playing:hover { border-color: ${t.amberDim}; background: ${t.bg2}; }
+  .track-row:not(.playing):hover { background: ${t.bg2}; }
   .track-row.editing { border-color: ${t.amber} !important; border-radius: 4px 4px 0 0; background: ${t.bg2}; }
   .track-num { font-family: 'Space Mono', monospace; font-size: 12px; color: ${t.textMuted}; text-align: center; }
   .track-num.playing-indicator { color: ${t.amber}; font-size: 16px; }
