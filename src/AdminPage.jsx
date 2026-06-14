@@ -733,10 +733,20 @@ function ClientManager({ clients, onRefresh, onToast }) {
       setError('A client with that name already exists'); return
     }
     setLoading(true)
-    const { error: dbError } = await supabase.from('clients').insert({
+    const { data: newClient, error: dbError } = await supabase.from('clients').insert({
       name: form.name.trim(), role: 'client', password_hash: hashPassword(form.password),
-    })
+    }).select().single()
     if (dbError) { setError('Could not add client: ' + dbError.message); setLoading(false); return }
+
+    // Auto-assign all existing tracks to the new client
+    const { data: allTracks } = await supabase.from('tracks').select('id, assigned_to')
+    if (allTracks?.length) {
+      await Promise.all(allTracks.map(track => {
+        const current = track.assigned_to || []
+        if (current.includes(newClient.id)) return Promise.resolve()
+        return supabase.from('tracks').update({ assigned_to: [...current, newClient.id] }).eq('id', track.id)
+      }))
+    }
     await onRefresh()
     setForm({ name:'', password:'' })
     setLoading(false)
