@@ -136,38 +136,47 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, currentTrack, onToas
 
   // ── Audio data extraction ─────────────────────────────────────
   const extractAudioData = (file) => new Promise((resolve) => {
-    const url = URL.createObjectURL(file)
-    fetch(url)
-      .then(r => r.arrayBuffer())
-      .then(buf => {
-        URL.revokeObjectURL(url)
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)()
-        return audioCtx.decodeAudioData(buf).then(decoded => {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const arrayBuffer = ev.target.result
+      let audioCtx
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+      } catch(e) {
+        resolve({ duration: null, waveformPeaks: [] }); return
+      }
+      audioCtx.decodeAudioData(
+        arrayBuffer,
+        (decoded) => {
           audioCtx.close()
-          const raw = decoded.getChannelData(0)
-          const peakCount = 200
-          const blockSize = Math.floor(raw.length / peakCount)
-          const peaks = []
-          for (let i = 0; i < peakCount; i++) {
-            let max = 0
-            for (let j = 0; j < blockSize; j++) {
-              const v = Math.abs(raw[i * blockSize + j])
-              if (v > max) max = v
+          try {
+            const raw = decoded.getChannelData(0)
+            const peakCount = 200
+            const blockSize = Math.floor(raw.length / peakCount)
+            const peaks = []
+            for (let i = 0; i < peakCount; i++) {
+              let max = 0
+              for (let j = 0; j < blockSize; j++) {
+                const v = Math.abs(raw[i * blockSize + j])
+                if (v > max) max = v
+              }
+              peaks.push(max)
             }
-            peaks.push(max)
+            const maxVal = Math.max(...peaks) || 1
+            const normalized = peaks.map(v => Math.round((v / maxVal) * 100) / 100)
+            resolve({ duration: decoded.duration, waveformPeaks: normalized })
+          } catch(e) {
+            resolve({ duration: decoded.duration, waveformPeaks: [] })
           }
-          const maxVal = Math.max(...peaks)
-          const normalized = peaks.map(v => Math.round((v / maxVal) * 100) / 100)
-          resolve({ duration: decoded.duration, waveformPeaks: normalized })
-        })
-      })
-      .catch(() => {
-        URL.revokeObjectURL(url)
-        // Fallback to just getting duration
-        const audio = new Audio(URL.createObjectURL(file))
-        audio.addEventListener('loadedmetadata', () => resolve({ duration: audio.duration, waveformPeaks: [] }))
-        audio.addEventListener('error', () => resolve({ duration: null, waveformPeaks: [] }))
-      })
+        },
+        (err) => {
+          audioCtx.close()
+          resolve({ duration: null, waveformPeaks: [] })
+        }
+      )
+    }
+    reader.onerror = () => resolve({ duration: null, waveformPeaks: [] })
+    reader.readAsArrayBuffer(file)
   })
 
   // ── File drop ────────────────────────────────────────────────
