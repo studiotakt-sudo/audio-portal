@@ -220,11 +220,34 @@ export default function App() {
     sessionStorage.setItem('portal_client', JSON.stringify(client))
   }
 
+  // ── Signed URL cache — persists for the session ───────────────
+  const urlCache = useRef({})
+
+  const getCachedUrl = async (filePath) => {
+    if (urlCache.current[filePath]) return urlCache.current[filePath]
+    const { data, error } = await supabase.storage.from('audio-tracks').createSignedUrl(filePath, 7200)
+    if (error || !data?.signedUrl) return null
+    urlCache.current[filePath] = data.signedUrl
+    return data.signedUrl
+  }
+
+  // Preload signed URLs in the background after tracks are known
+  const preloadUrls = useCallback(async (tracks) => {
+    // Stagger requests so we don't hammer the API
+    for (const track of tracks.slice(0, 20)) { // preload first 20
+      if (!urlCache.current[track.file_path]) {
+        await getCachedUrl(track.file_path)
+        await new Promise(r => setTimeout(r, 100)) // 100ms gap between requests
+      }
+    }
+  }, [])
+
   const handleSignOut = () => {
     setClientRow(null)
     sessionStorage.removeItem('portal_client')
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = '' }
     setCurrentTrack(null); setIsPlaying(false); setSignedUrl(null)
+    urlCache.current = {} // clear cache on sign out
   }
 
   const showToast = (msg, type = 'success') => {
@@ -232,11 +255,13 @@ export default function App() {
     setTimeout(() => setToast(null), 3500)
   }
 
+  const [loadingTrackId, setLoadingTrackId] = useState(null)
+
   const playTrack = useCallback(async (track) => {
     const el = audioRef.current
     if (!el) return
 
-    // Same track — just toggle play/pause, no flicker
+    // Same track — just toggle play/pause
     const isSame = currentTrack?.id === track.id && currentTrack?.versionIdx === track.versionIdx
     if (isSame) {
       if (isPlaying) el.pause()
@@ -244,19 +269,21 @@ export default function App() {
       return
     }
 
-    // Different track — load and play
-    const { data, error } = await supabase.storage.from('audio-tracks').createSignedUrl(track.file_path, 3600)
-    if (error || !data?.signedUrl) { showToast('Could not load audio', 'error'); return }
-
-    // Update state before touching audio element to avoid flicker
+    // Optimistic UI — highlight track immediately
     setCurrentTrack(track)
     setIsPlaying(false)
     setProgress(0)
     setDuration(0)
-    setSignedUrl(data.signedUrl)
+    setLoadingTrackId(track.id)
 
+    const url = await getCachedUrl(track.file_path)
+    setLoadingTrackId(null)
+
+    if (!url) { showToast('Could not load audio', 'error'); setCurrentTrack(null); return }
+
+    setSignedUrl(url)
     el.pause()
-    el.src = data.signedUrl
+    el.src = url
     el.load()
     el.play().catch(console.error)
   }, [currentTrack, isPlaying])
@@ -278,7 +305,7 @@ export default function App() {
   )
 
   const css = buildCss(theme)
-  const playerProps = { currentTrack, isPlaying, progress, duration, signedUrl, onTogglePlay: togglePlay, onSeek: seekTo, theme }
+  const playerProps = { currentTrack, isPlaying, progress, duration, signedUrl, onTogglePlay: togglePlay, onSeek: seekTo, theme, loadingTrackId, preloadUrls }
 
   return (
     <>

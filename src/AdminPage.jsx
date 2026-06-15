@@ -115,7 +115,7 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
 
 // ─── Track Manager ─────────────────────────────────────────────────
 function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast }) {
-  const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme } = playerProps || {}
+  const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme, loadingTrackId } = playerProps || {}
   const accentColor = theme?.amber || T.amber
   const mutedColor  = theme?.border || T.border
   const [dragOver, setDragOver]       = useState(false)
@@ -499,7 +499,10 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                         title="Drag to reorder">⠿</div>
                     )}
                     <div className={`track-num ${currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined?'playing-indicator':''}`} style={{paddingTop: currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined ? 4 : 0}}>
-                      {currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined ? '♪' : i+1}
+                      {loadingTrackId === track.id
+                        ? <span className="spinner" style={{margin:0, width:12, height:12, borderWidth:2}} />
+                        : currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined ? '♪' : i+1
+                      }
                     </div>
                     {/* Main content */}
                     <div style={{display:'flex', flexDirection:'column', gap:4, minWidth:0}}>

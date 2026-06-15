@@ -89,7 +89,7 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
   const [activeTag, setActiveTag]   = useState(null)
   const [expandedId, setExpandedId] = useState(null)
 
-  const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme } = playerProps
+  const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme, loadingTrackId, preloadUrls } = playerProps
   const accentColor = theme?.amber || T.amber
   const mutedColor  = theme?.border || T.border
 
@@ -100,6 +100,10 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
     const mine = (data || []).filter(t => !t.assigned_to?.length || t.assigned_to.includes(clientRow.id))
     setTracks(mine)
     setLoading(false)
+    // Preload signed URLs in background after tracks are shown
+    if (preloadUrls && mine.length > 0) {
+      setTimeout(() => preloadUrls(mine), 500)
+    }
   }
 
   const download = async (track) => {
@@ -143,7 +147,10 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
         >
           {/* Number / playing indicator */}
           <div className={`track-num ${isActive ? 'playing-indicator' : ''}`} style={{paddingTop: isActive ? 4 : 0}}>
-            {isActive ? '♪' : i + 1}
+            {loadingTrackId === track.id
+              ? <span className="spinner" style={{margin:0, width:12, height:12, borderWidth:2}} />
+              : isActive ? '♪' : i + 1
+            }
           </div>
 
           {/* Main content column */}
