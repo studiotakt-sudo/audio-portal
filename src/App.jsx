@@ -242,12 +242,22 @@ export default function App() {
     }
   }, [])
 
+  // ── Use refs for hot-path state to avoid stale closures ──────
+  const currentTrackRef = useRef(null)
+  const isPlayingRef    = useRef(false)
+  const loadingRef      = useRef(null)
+
+  // Keep refs in sync with state
+  useEffect(() => { currentTrackRef.current = currentTrack }, [currentTrack])
+  useEffect(() => { isPlayingRef.current = isPlaying }, [isPlaying])
+
   const handleSignOut = () => {
     setClientRow(null)
     sessionStorage.removeItem('portal_client')
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = '' }
     setCurrentTrack(null); setIsPlaying(false); setSignedUrl(null)
-    urlCache.current = {} // clear cache on sign out
+    currentTrackRef.current = null; isPlayingRef.current = false
+    urlCache.current = {}
   }
 
   const showToast = (msg, type = 'success') => {
@@ -257,42 +267,66 @@ export default function App() {
 
   const [loadingTrackId, setLoadingTrackId] = useState(null)
 
-  const playTrack = useCallback(async (track) => {
+  // playTrack uses refs so it never has stale closure issues
+  // and hits the cache synchronously when URL is already known
+  const playTrack = useCallback((track) => {
     const el = audioRef.current
     if (!el) return
 
-    // Same track — just toggle play/pause
-    const isSame = currentTrack?.id === track.id && currentTrack?.versionIdx === track.versionIdx
-    if (isSame) {
-      if (isPlaying) el.pause()
+    // Guard against double-click while already loading this track
+    if (loadingRef.current === track.id) return
+
+    // Same track — just toggle
+    const cur = currentTrackRef.current
+    if (cur?.id === track.id && cur?.versionIdx === track.versionIdx) {
+      if (isPlayingRef.current) el.pause()
       else el.play().catch(console.error)
       return
     }
 
-    // Optimistic UI — highlight track immediately
+    // Optimistic — highlight immediately before any async work
     setCurrentTrack(track)
     setIsPlaying(false)
     setProgress(0)
     setDuration(0)
+
+    // If URL already cached — start playing synchronously, zero delay
+    const cachedUrl = urlCache.current[track.file_path]
+    if (cachedUrl) {
+      setSignedUrl(cachedUrl)
+      el.pause()
+      el.src = cachedUrl
+      el.load()
+      el.play().catch(console.error)
+      return
+    }
+
+    // URL not cached yet — show spinner and fetch
+    loadingRef.current = track.id
     setLoadingTrackId(track.id)
 
-    const url = await getCachedUrl(track.file_path)
-    setLoadingTrackId(null)
-
-    if (!url) { showToast('Could not load audio', 'error'); setCurrentTrack(null); return }
-
-    setSignedUrl(url)
-    el.pause()
-    el.src = url
-    el.load()
-    el.play().catch(console.error)
-  }, [currentTrack, isPlaying])
+    supabase.storage.from('audio-tracks')
+      .createSignedUrl(track.file_path, 7200)
+      .then(({ data, error }) => {
+        loadingRef.current = null
+        setLoadingTrackId(null)
+        if (error || !data?.signedUrl) { showToast('Could not load audio', 'error'); setCurrentTrack(null); return }
+        const url = data.signedUrl
+        urlCache.current[track.file_path] = url
+        setSignedUrl(url)
+        el.pause()
+        el.src = url
+        el.load()
+        el.play().catch(console.error)
+      })
+  }, []) // no dependencies — uses refs only
 
   const togglePlay = useCallback(() => {
     const el = audioRef.current
-    if (!el || !currentTrack) return
-    if (isPlaying) el.pause(); else el.play().catch(console.error)
-  }, [isPlaying, currentTrack])
+    if (!el || !currentTrackRef.current) return
+    if (isPlayingRef.current) el.pause()
+    else el.play().catch(console.error)
+  }, [])
 
   const seekTo = useCallback((time) => {
     if (audioRef.current) audioRef.current.currentTime = time
