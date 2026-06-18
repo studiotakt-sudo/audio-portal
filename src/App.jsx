@@ -20,7 +20,7 @@ export function buildCss(t) {
   .portal { min-height: 100vh; display: flex; flex-direction: column; }
   .topbar {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0 32px; height: 60px;
+    padding: 0 32px; height: 84px;
     background: url('/topbar-bg.png') center 35% / cover;
     border-bottom: 1px solid ${t.border};
     position: sticky; top: 0; z-index: 100;
@@ -28,13 +28,16 @@ export function buildCss(t) {
   .topbar::before {
     content: '';
     position: absolute; inset: 0;
-    background: rgba(10,11,15,0.6);
+    background: rgba(10,11,15,0.68);
     z-index: 0;
   }
   .topbar { position: relative; }
   .topbar-brand, .topbar-right { position: relative; z-index: 1; }
-  .topbar-brand { font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; color: ${t.amber}; display: flex; align-items: center; gap: 10px; }
-  .topbar-brand-dot { width: 8px; height: 8px; border-radius: 50%; background: ${t.amber}; animation: pulse 2s ease-in-out infinite; }
+  .topbar-brand { color: #ffffff; text-shadow: 0 1px 6px rgba(0,0,0,0.6); }
+  .topbar-right .mode-badge { backdrop-filter: blur(6px); background: rgba(10,11,15,0.7); }
+  .topbar-right .btn-ghost { backdrop-filter: blur(6px); background: rgba(10,11,15,0.4); }
+  .topbar-brand { font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; display: flex; align-items: center; gap: 10px; }
+  .topbar-brand-dot { width: 8px; height: 8px; border-radius: 50%; background: ${t.amber}; animation: pulse 2s ease-in-out infinite; box-shadow: 0 0 6px rgba(0,0,0,0.5); }
   @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
   .topbar-right { display: flex; align-items: center; gap: 16px; }
   .mode-badge { font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; padding: 4px 10px; border-radius: 2px; text-transform: uppercase; background: ${t.bg3}; color: ${t.textSecondary}; border: 1px solid ${t.border}; }
@@ -373,7 +376,7 @@ export default function App() {
             {clientRow && (
               <>
                 <span className={`mode-badge ${clientRow.role}`}>{clientRow.role === 'admin' ? '⬡ Admin' : 'Client'}</span>
-                <span style={{ fontSize:13, color: theme.textSecondary }}>{clientRow.name}</span>
+                <span style={{ fontSize:13, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{clientRow.name}</span>
                 <button className="btn btn-ghost btn-sm" onClick={handleSignOut}>Sign out</button>
               </>
             )}
