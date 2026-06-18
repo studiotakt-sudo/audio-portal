@@ -18,7 +18,21 @@ export function buildCss(t) {
   body { font-family: 'Space Grotesk', sans-serif; background: ${t.bg0}; color: ${t.textPrimary}; min-height: 100vh; }
   ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: ${t.bg1}; } ::-webkit-scrollbar-thumb { background: ${t.border}; border-radius: 2px; }
   .portal { min-height: 100vh; display: flex; flex-direction: column; }
-  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 32px; height: 60px; background: ${t.bg1}; border-bottom: 1px solid ${t.border}; position: sticky; top: 0; z-index: 100; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 32px; height: 60px;
+    background: url('/topbar-bg.png') center 35% / cover;
+    border-bottom: 1px solid ${t.border};
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topbar::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: rgba(10,11,15,0.6);
+    z-index: 0;
+  }
+  .topbar { position: relative; }
+  .topbar-brand, .topbar-right { position: relative; z-index: 1; }
   .topbar-brand { font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; color: ${t.amber}; display: flex; align-items: center; gap: 10px; }
   .topbar-brand-dot { width: 8px; height: 8px; border-radius: 50%; background: ${t.amber}; animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
