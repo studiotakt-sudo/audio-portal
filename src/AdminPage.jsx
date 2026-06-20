@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { supabase } from './supabase'
 import { DEFAULT_THEME as T, fmtTime, InlineSeekbar } from './App'
 
@@ -14,15 +14,15 @@ function fmtDuration(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-function TrackMeta({ size, duration, bpm }) {
+const TrackMeta = memo(function TrackMeta({ size, duration, bpm }) {
   const parts = []
   if (duration) parts.push(fmtDuration(duration))
   if (bpm) parts.push(`${bpm} BPM`)
   if (size) parts.push((size / 1024 / 1024).toFixed(1) + ' MB')
   return <div className="track-duration">{parts.join(' · ')}</div>
-}
+})
 
-function WaveformBg({ peaks, baseColor }) {
+const WaveformBg = memo(function WaveformBg({ peaks, baseColor }) {
   const canvasRef = useRef(null)
   useEffect(() => {
     const canvas = canvasRef.current
@@ -45,7 +45,7 @@ function WaveformBg({ peaks, baseColor }) {
     <canvas ref={canvasRef} width={500} height={40}
       style={{ display:'block', width:'100%', height:40, pointerEvents:'none' }} />
   )
-}
+})
 
 // Preview of a stored featured image
 function FeaturedImagePreview({ path }) {

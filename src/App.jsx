@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from './supabase'
 import LoginPage from './LoginPage'
 import AdminPage from './AdminPage'
@@ -293,11 +293,13 @@ export default function App() {
     // Guard against double-click while already loading this track
     if (loadingRef.current === track.id) return
 
-    // Same track — just toggle
+    // Same track — just toggle. Read the element's real state (el.paused)
+    // rather than a synced ref, which lags one commit behind and causes
+    // missed / no-op clicks during rapid toggling or mid-render.
     const cur = currentTrackRef.current
     if (cur?.id === track.id && cur?.versionIdx === track.versionIdx) {
-      if (isPlayingRef.current) el.pause()
-      else el.play().catch(console.error)
+      if (el.paused) el.play().catch(console.error)
+      else el.pause()
       return
     }
 
@@ -341,8 +343,9 @@ export default function App() {
   const togglePlay = useCallback(() => {
     const el = audioRef.current
     if (!el || !currentTrackRef.current) return
-    if (isPlayingRef.current) el.pause()
-    else el.play().catch(console.error)
+    // el.paused is the synchronous source of truth; isPlayingRef lags a commit
+    if (el.paused) el.play().catch(console.error)
+    else el.pause()
   }, [])
 
   const seekTo = useCallback((time) => {
@@ -355,8 +358,22 @@ export default function App() {
     </div>
   )
 
-  const css = buildCss(theme)
-  const playerProps = { currentTrack, isPlaying, progress, duration, signedUrl, onTogglePlay: togglePlay, onSeek: seekTo, theme, loadingTrackId, preloadUrls }
+  // Stylesheet only depends on theme — memoize so a progress tick (4x/sec)
+  // doesn't recompute and re-inject this entire <style> block every time.
+  const css = useMemo(() => buildCss(theme), [theme])
+
+  // Split the bundle: everything that is stable across a playback tick goes in
+  // playerBase (memoized by identity), while progress/duration — which change
+  // ~4x/sec — are passed separately so only the active row consumes them.
+  const playerBase = useMemo(() => ({
+    currentTrack, isPlaying, signedUrl,
+    onTogglePlay: togglePlay, onSeek: seekTo,
+    theme, loadingTrackId, preloadUrls,
+  }), [currentTrack, isPlaying, signedUrl, togglePlay, seekTo, theme, loadingTrackId, preloadUrls])
+
+  const playerProps = useMemo(() => ({
+    ...playerBase, progress, duration,
+  }), [playerBase, progress, duration])
 
   return (
     <>
