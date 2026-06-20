@@ -352,14 +352,10 @@ export default function App() {
     if (audioRef.current) audioRef.current.currentTime = time
   }, [])
 
-  if (loading) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background: DEFAULT_THEME.bg0, color: DEFAULT_THEME.textMuted, fontFamily:'Space Mono,monospace', fontSize:13 }}>
-      <span className="spinner" style={{borderTopColor: DEFAULT_THEME.amber}} />Loading…
-    </div>
-  )
-
   // Stylesheet only depends on theme — memoize so a progress tick (4x/sec)
   // doesn't recompute and re-inject this entire <style> block every time.
+  // NOTE: these hooks must stay ABOVE the early `loading` return — hooks must
+  // run in the same order on every render.
   const css = useMemo(() => buildCss(theme), [theme])
 
   // Split the bundle: everything that is stable across a playback tick goes in
@@ -374,6 +370,12 @@ export default function App() {
   const playerProps = useMemo(() => ({
     ...playerBase, progress, duration,
   }), [playerBase, progress, duration])
+
+  if (loading) return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background: DEFAULT_THEME.bg0, color: DEFAULT_THEME.textMuted, fontFamily:'Space Mono,monospace', fontSize:13 }}>
+      <span className="spinner" style={{borderTopColor: DEFAULT_THEME.amber}} />Loading…
+    </div>
+  )
 
   return (
     <>
