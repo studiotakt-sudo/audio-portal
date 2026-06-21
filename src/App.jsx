@@ -158,47 +158,64 @@ export function hashPassword(str) {
 }
 
 // ─── Inline waveform seekbar (used inside track rows) ─────────────
+// Progress advances ~4x/sec. Redrawing the canvas (clearRect + repaint) on
+// every tick blanks the waveform momentarily each frame — that's the flicker.
+// Instead we draw the bars ONCE (only when peaks/colors change): a muted base
+// layer and an accent "played" layer stacked on top. On each progress tick we
+// only update the played layer's clip-path via inline style — a style-only
+// change that composites without ever clearing the canvas, so no flash.
 export function InlineSeekbar({ peaks, progress, duration, onSeek, accentColor, mutedColor }) {
-  const canvasRef = useRef(null)
+  const baseRef   = useRef(null)
+  const playedRef = useRef(null)
 
-  useEffect(() => {
-    const canvas = canvasRef.current
+  const drawLayer = (canvas, color, alphaFor) => {
     if (!canvas || !peaks || peaks.length === 0) return
     const ctx = canvas.getContext('2d')
     const W = canvas.width, H = canvas.height
     ctx.clearRect(0, 0, W, H)
-    const progressRatio = duration ? progress / duration : 0
-    const playedX = progressRatio * W
     const barW = W / peaks.length
     peaks.forEach((peak, i) => {
       const x = i * barW
       const barH = Math.max(2, peak * H * 0.85)
       const y = (H - barH) / 2
-      const isPlayed = x < playedX
-      ctx.fillStyle = isPlayed ? (accentColor || '#e8a44a') : (mutedColor || '#2a2e42')
-      ctx.globalAlpha = isPlayed ? (0.5 + peak * 0.4) : (0.25 + peak * 0.35)
+      ctx.fillStyle = color
+      ctx.globalAlpha = alphaFor(peak)
       ctx.fillRect(x, y, Math.max(1, barW - 0.8), barH)
     })
     ctx.globalAlpha = 1
-  }, [peaks, progress, duration, accentColor, mutedColor])
+  }
+
+  // Draw both layers only when the waveform or colors change — NOT on progress.
+  useEffect(() => {
+    drawLayer(baseRef.current, mutedColor || '#2a2e42', p => 0.25 + p * 0.35)
+    drawLayer(playedRef.current, accentColor || '#e8a44a', p => 0.5 + p * 0.4)
+  }, [peaks, accentColor, mutedColor])
+
+  const ratio = duration ? Math.max(0, Math.min(1, progress / duration)) : 0
 
   const handleClick = (e) => {
     if (!duration) return
-    const canvas = canvasRef.current
+    const canvas = baseRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    const ratio = (e.clientX - rect.left) / rect.width  // use rendered width, not canvas.width
-    onSeek(Math.max(0, Math.min(1, ratio)) * duration)
+    const r = (e.clientX - rect.left) / rect.width  // use rendered width, not canvas.width
+    onSeek(Math.max(0, Math.min(1, r)) * duration)
   }
+
+  const layerStyle = { position:'absolute', top:0, left:0, display:'block', width:'100%', height:'100%' }
 
   return (
     <div className="inline-waveform"
       onClick={e => { e.stopPropagation(); handleClick(e) }}
-      style={{cursor: duration ? 'pointer' : 'default', paddingTop:6, paddingBottom:6, marginTop:-6, marginBottom:-6}}>
-      <canvas ref={canvasRef} width={800} height={36} style={{display:'block', width:'100%', height:36}} />
+      style={{cursor: duration ? 'pointer' : 'default', paddingTop:6, paddingBottom:6, marginTop:-6, marginBottom:-6, position:'relative'}}>
+      {/* spacer canvas establishes the box height; layers are absolutely stacked */}
+      <canvas width={800} height={36} style={{display:'block', width:'100%', height:36, visibility:'hidden'}} />
+      <canvas ref={baseRef} width={800} height={36} style={layerStyle} />
+      <canvas ref={playedRef} width={800} height={36}
+        style={{ ...layerStyle, clipPath: `inset(0 ${(1 - ratio) * 100}% 0 0)` }} />
       {duration > 0 && (
         <div className="inline-playhead" style={{
-          left: `${duration ? (progress / duration) * 100 : 0}%`,
+          left: `${ratio * 100}%`,
           background: accentColor || '#e8a44a'
         }} />
       )}
