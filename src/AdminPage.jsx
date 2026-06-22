@@ -14,6 +14,69 @@ function fmtDuration(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+// On-demand usage stats for a single track. Fetches only when mounted (i.e.
+// when its edit panel is open), so the track list itself stays light.
+function TrackStats({ trackId, clients }) {
+  const [loading, setLoading] = useState(true)
+  const [plays, setPlays] = useState(0)
+  const [downloaders, setDownloaders] = useState([])  // [[clientId, count], ...]
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      setLoading(true)
+      const { data } = await supabase.from('track_events')
+        .select('client_id, event_type')
+        .eq('track_id', trackId)
+      if (!alive) return
+      const rows = data || []
+      setPlays(rows.filter(r => r.event_type === 'play').length)
+      const dl = new Map()
+      rows.filter(r => r.event_type === 'download').forEach(r => dl.set(r.client_id, (dl.get(r.client_id) || 0) + 1))
+      setDownloaders([...dl.entries()].sort((a, b) => b[1] - a[1]))
+      setLoading(false)
+    })()
+    return () => { alive = false }
+  }, [trackId])
+
+  const label = (id) => {
+    if (!id) return 'Removed client'
+    const c = clients.find(x => x.id === id)
+    return c ? (c.name || c.email || 'Client') : 'Removed client'
+  }
+  const totalDownloads = downloaders.reduce((n, [, c]) => n + c, 0)
+
+  return (
+    <div>
+      <div className="track-edit-label" style={{marginBottom:8}}>Usage</div>
+      {loading
+        ? <div style={{color:T.textMuted, fontSize:12, display:'flex', alignItems:'center', gap:8}}><span className="spinner"/>Loading…</div>
+        : (
+          <>
+            <div style={{display:'flex', gap:20, marginBottom: downloaders.length ? 12 : 0}}>
+              <span style={{fontSize:13}}><strong style={{color:T.amber}}>{plays}</strong> <span style={{color:T.textMuted}}>play{plays!==1?'s':''}</span></span>
+              <span style={{fontSize:13}}><strong style={{color:T.amber}}>{totalDownloads}</strong> <span style={{color:T.textMuted}}>download{totalDownloads!==1?'s':''}</span></span>
+            </div>
+            {downloaders.length > 0 && (
+              <div>
+                <div style={{fontSize:11, color:T.textMuted, marginBottom:4}}>Downloaded by</div>
+                <div style={{display:'flex', flexDirection:'column', gap:3}}>
+                  {downloaders.map(([id, count]) => (
+                    <div key={id || 'none'} style={{display:'flex', justifyContent:'space-between', fontSize:12, background:T.bg2, padding:'4px 8px', borderRadius:2}}>
+                      <span>{label(id)}</span>
+                      <span style={{fontFamily:'Space Mono,monospace', color:T.textMuted}}>{count}×</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )
+      }
+    </div>
+  )
+}
+
 const TrackMeta = memo(function TrackMeta({ size, duration, bpm }) {
   const parts = []
   if (duration) parts.push(fmtDuration(duration))
@@ -104,10 +167,14 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
       <div className="tabs">
         <button className={`tab ${tab === 'tracks' ? 'active' : ''}`} onClick={() => setTab('tracks')}>🎵 Tracks</button>
         <button className={`tab ${tab === 'clients' ? 'active' : ''}`} onClick={() => setTab('clients')}>👤 Clients</button>
+        <button className={`tab ${tab === 'insights' ? 'active' : ''}`} onClick={() => setTab('insights')}>📊 Insights</button>
+        <button className={`tab ${tab === 'admins' ? 'active' : ''}`} onClick={() => setTab('admins')}>🔑 Admins</button>
         <button className={`tab ${tab === 'theme' ? 'active' : ''}`} onClick={() => setTab('theme')}>🎨 Theme</button>
       </div>
       {tab === 'tracks' && <TrackManager tracks={tracks} clients={clients} onRefresh={fetchAll} onPlay={onPlay} playerProps={playerProps} onToast={onToast} />}
-      {tab === 'clients' && <ClientManager clients={clients} onRefresh={fetchAll} onToast={onToast} />}
+      {tab === 'clients' && <ClientManager clients={clients} tracks={tracks} onRefresh={fetchAll} onToast={onToast} />}
+      {tab === 'insights' && <InsightsManager tracks={tracks} clients={clients} onToast={onToast} />}
+      {tab === 'admins' && <AdminManager clients={clients} currentAdmin={clientRow} onRefresh={fetchAll} onToast={onToast} />}
       {tab === 'theme' && <ThemeManager theme={theme} onThemeChange={onThemeChange} onToast={onToast} />}
     </div>
   )
@@ -237,7 +304,9 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       waveform_peaks: waveformPeaks || [],
       bpm: form.bpm ? parseInt(form.bpm) : null,
       tags: form.tags,
-      assigned_to: form.assignedTo.length ? form.assignedTo : clientList.map(c => c.id),
+      // Empty assigned_to means "visible to all clients" (current and future).
+      // Only populate it to RESTRICT a track to specific clients.
+      assigned_to: form.assignedTo,
       versions: [],
       sort_order: nextOrder,
       featured: false,
@@ -300,6 +369,8 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       versions: [...(track.versions || [])],
       featured_image: track.featured_image || null,
       bpm: track.bpm || '',
+      admin_notes: track.admin_notes || '',
+      project_file_ref: track.project_file_ref || '',
     })
   }
   const editAddTag = () => {
@@ -350,6 +421,8 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       versions: editState.versions,
       featured_image: featuredImagePath,
       bpm: editState.bpm ? parseInt(editState.bpm) : null,
+      admin_notes: editState.admin_notes,
+      project_file_ref: editState.project_file_ref,
     }).eq('id', trackId)
     if (error) { onToast('Save failed', 'error'); return }
     setFeaturedImageFile(null)
@@ -418,7 +491,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                 value={form.bpm} onChange={e => setForm(f => ({...f, bpm:e.target.value}))} />
             </div>
             <div className="field">
-              <label className="label">Assign to clients</label>
+              <label className="label">Restrict to clients <span style={{color:T.textMuted, fontWeight:400}}>(optional — leave empty for all)</span></label>
               <div style={{display:'flex', flexWrap:'wrap', gap:6, marginTop:4}}>
                 {clientList.length === 0
                   ? <span style={{fontSize:12, color:T.textMuted}}>No clients yet — visible to all</span>
@@ -610,7 +683,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                             )}
                           </div>
                           {clientList.length>0 && editState.assignedTo.length===0 && (
-                            <div style={{fontSize:11, color:T.amber, marginTop:6, fontFamily:'Space Mono,monospace'}}>⚠ No clients selected</div>
+                            <div style={{fontSize:11, color:T.cyan, marginTop:6, fontFamily:'Space Mono,monospace'}}>✓ Visible to all clients — select names to restrict</div>
                           )}
                           </div>
                           <div>
@@ -638,6 +711,25 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                               ))}
                             </div>
                           )}
+                        </div>
+                        <div style={{gridColumn:'1 / -1', borderTop:`1px solid ${T.border}`, paddingTop:16}}>
+                          <div className="track-edit-label">
+                            Admin notes <span style={{color:T.textMuted, fontWeight:400}}>(private — usage, context, never shown to clients)</span>
+                          </div>
+                          <textarea className="input" rows={2} style={{width:'100%', resize:'vertical', fontFamily:'inherit', marginTop:4}}
+                            placeholder="Where it's been used, licensing notes, anything worth remembering…"
+                            value={editState.admin_notes}
+                            onChange={e => setEditState(s => ({...s, admin_notes:e.target.value}))} />
+                          <div className="track-edit-label" style={{marginTop:12}}>
+                            Project file <span style={{color:T.textMuted, fontWeight:400}}>(note to find the source session on your computer)</span>
+                          </div>
+                          <input className="input" style={{width:'100%', marginTop:4}}
+                            placeholder="e.g. Logic session — /Music/Cypher/coral-static"
+                            value={editState.project_file_ref}
+                            onChange={e => setEditState(s => ({...s, project_file_ref:e.target.value}))} />
+                        </div>
+                        <div style={{gridColumn:'1 / -1', borderTop:`1px solid ${T.border}`, paddingTop:16}}>
+                          <TrackStats trackId={track.id} clients={clients} />
                         </div>
                         <div style={{gridColumn:'1 / -1', borderTop:`1px solid ${T.border}`, paddingTop:16}}>
                           <div className="track-edit-label">Versions</div>
@@ -736,41 +828,46 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
   )
 }
 
-// ─── Client Manager ────────────────────────────────────────────────
-function ClientManager({ clients, onRefresh, onToast }) {
-  const [form, setForm]           = useState({ name:'', password:'' })
+// ─── Admin Manager ─────────────────────────────────────────────────
+// Manages admin logins. Admins are just clients rows with role:'admin' — no
+// separate backend. The protected base admin (by email) can never be removed.
+const PROTECTED_ADMIN_EMAIL = 'cypher@cypher.audio'
+
+function AdminManager({ clients, currentAdmin, onRefresh, onToast }) {
+  const [form, setForm]           = useState({ name:'', email:'', password:'' })
   const [error, setError]         = useState('')
   const [loading, setLoading]     = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [newPass, setNewPass]     = useState('')
-  const clientList = clients.filter(c => c.role === 'client')
+  const adminList = clients.filter(c => c.role === 'admin')
 
-  const addClient = async () => {
+  const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
+  const isProtected = (c) => (c.email || '').toLowerCase() === PROTECTED_ADMIN_EMAIL
+
+  const addAdmin = async () => {
     setError('')
     if (!form.name.trim()) { setError('Name is required'); return }
+    const email = form.email.trim().toLowerCase()
+    if (!email) { setError('Email is required — admins log in with their email'); return }
+    if (!isValidEmail(email)) { setError('Please enter a valid email address'); return }
     if (form.password.length < 4) { setError('Password must be at least 4 characters'); return }
-    if (clients.some(c => c.name.toLowerCase() === form.name.trim().toLowerCase())) {
-      setError('A client with that name already exists'); return
+    if (clients.some(c => (c.email || '').toLowerCase() === email)) {
+      setError('An account with that email already exists'); return
     }
     setLoading(true)
-    const { data: newClient, error: dbError } = await supabase.from('clients').insert({
-      name: form.name.trim(), role: 'client', password_hash: hashPassword(form.password),
+    const { error: dbError } = await supabase.from('clients').insert({
+      name: form.name.trim(), email, role: 'admin', password_hash: hashPassword(form.password),
     }).select().single()
-    if (dbError) { setError('Could not add client: ' + dbError.message); setLoading(false); return }
-
-    // Auto-assign all existing tracks to the new client
-    const { data: allTracks } = await supabase.from('tracks').select('id, assigned_to')
-    if (allTracks?.length) {
-      await Promise.all(allTracks.map(track => {
-        const current = track.assigned_to || []
-        if (current.includes(newClient.id)) return Promise.resolve()
-        return supabase.from('tracks').update({ assigned_to: [...current, newClient.id] }).eq('id', track.id)
-      }))
+    if (dbError) {
+      const msg = dbError.message && dbError.message.includes('idx_clients_email_unique')
+        ? 'That email is already in use'
+        : 'Could not add admin: ' + dbError.message
+      setError(msg); setLoading(false); return
     }
     await onRefresh()
-    setForm({ name:'', password:'' })
+    setForm({ name:'', email:'', password:'' })
     setLoading(false)
-    onToast('Client added')
+    onToast('Admin added')
   }
 
   const resetPassword = async (id) => {
@@ -780,39 +877,49 @@ function ClientManager({ clients, onRefresh, onToast }) {
     setEditingId(null); setNewPass(''); onToast('Password updated')
   }
 
-  const deleteClient = async (client) => {
-    if (!confirm(`Remove ${client.name}?`)) return
-    await supabase.from('clients').delete().eq('id', client.id)
-    await onRefresh(); onToast('Client removed')
+  const deleteAdmin = async (admin) => {
+    if (isProtected(admin)) { onToast('The base admin cannot be removed', 'error'); return }
+    if (admin.id === currentAdmin?.id) { onToast("You can't remove the account you're logged in as", 'error'); return }
+    if (!confirm('Remove admin ' + (admin.name || admin.email) + '?')) return
+    await supabase.from('clients').delete().eq('id', admin.id)
+    await onRefresh(); onToast('Admin removed')
   }
 
   return (
     <>
       <div className="upload-form">
-        <div className="upload-form-title" style={{marginBottom:16}}>Add new client</div>
-        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:12, alignItems:'end'}}>
+        <div className="upload-form-title" style={{marginBottom:16}}>Add new admin</div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr auto', gap:12, alignItems:'end'}}>
           <div className="field" style={{marginBottom:0}}>
-            <label className="label">Name</label>
-            <input className="input" placeholder="Client name" value={form.name} onChange={e => setForm(f=>({...f,name:e.target.value}))} />
+            <label className="label">Name <span style={{color:T.textMuted, fontWeight:400}}>(label only)</span></label>
+            <input className="input" placeholder="e.g. Alex (studio)" value={form.name} onChange={e => setForm(f => ({...f, name:e.target.value}))} />
+          </div>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Email <span style={{color:T.amber, fontWeight:400}}>(login)</span></label>
+            <input type="email" className="input" placeholder="admin@email.com" value={form.email} onChange={e => setForm(f => ({...f, email:e.target.value}))} />
           </div>
           <div className="field" style={{marginBottom:0}}>
             <label className="label">Password</label>
-            <input type="text" className="input" placeholder="Set a password" value={form.password} onChange={e => setForm(f=>({...f,password:e.target.value}))} />
+            <input type="text" className="input" placeholder="Set a password" value={form.password} onChange={e => setForm(f => ({...f, password:e.target.value}))} />
           </div>
-          <button className="btn btn-primary" onClick={addClient} disabled={loading}>
-            {loading ? <><span className="spinner"/>Adding…</> : 'Add client'}
+          <button className="btn btn-primary" onClick={addAdmin} disabled={loading}>
+            {loading ? <><span className="spinner"/>Adding…</> : 'Add admin'}
           </button>
         </div>
         {error && <div className="error-msg" style={{marginTop:8}}>{error}</div>}
       </div>
-      <div className="section-header">{clientList.length} client{clientList.length!==1?'s':''}</div>
-      {clientList.length === 0
-        ? <div className="empty-state"><div className="empty-icon">👤</div>No clients yet</div>
-        : clientList.map(c => (
+      <div className="section-header">{adminList.length} admin{adminList.length!==1?'s':''}</div>
+      {adminList.length === 0
+        ? <div className="empty-state"><div className="empty-icon">🔑</div>No admins yet</div>
+        : adminList.map(c => (
           <div key={c.id} className="client-card">
-            <div>
-              <div className="client-name">{c.name}</div>
-              <div className="client-meta">Added {new Date(c.created_at).toLocaleDateString()}</div>
+            <div style={{minWidth:0}}>
+              <div className="client-name">
+                {c.name}
+                {isProtected(c) && <span style={{marginLeft:8, fontSize:10, fontFamily:'Space Mono,monospace', color:T.cyan, border:`1px solid ${T.cyan}`, borderRadius:2, padding:'1px 5px'}}>BASE</span>}
+                {c.id === currentAdmin?.id && <span style={{marginLeft:8, fontSize:10, fontFamily:'Space Mono,monospace', color:T.textMuted}}>you</span>}
+              </div>
+              <div className="client-meta"><span style={{color:T.amber}}>{c.email || 'no email'}</span></div>
             </div>
             <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}}>
               {editingId === c.id ? (
@@ -825,7 +932,8 @@ function ClientManager({ clients, onRefresh, onToast }) {
               ) : (
                 <>
                   <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(c.id)}>Reset password</button>
-                  <button className="btn btn-danger btn-sm" onClick={() => deleteClient(c)}>Remove</button>
+                  {!isProtected(c) && c.id !== currentAdmin?.id &&
+                    <button className="btn btn-danger btn-sm" onClick={() => deleteAdmin(c)}>Remove</button>}
                 </>
               )}
             </div>
@@ -833,6 +941,354 @@ function ClientManager({ clients, onRefresh, onToast }) {
         ))
       }
     </>
+  )
+}
+
+// ─── Client Manager ────────────────────────────────────────────────
+function ClientManager({ clients, tracks, onRefresh, onToast }) {
+  const [form, setForm]             = useState({ name:'', email:'', password:'' })
+  const [error, setError]           = useState('')
+  const [loading, setLoading]       = useState(false)
+  const [editingId, setEditingId]   = useState(null)
+  const [newPass, setNewPass]       = useState('')
+  const [notesId, setNotesId]       = useState(null)
+  const [dlId, setDlId]             = useState(null)   // which client's downloads are open
+  const [notesDraft, setNotesDraft] = useState('')
+  const clientList = clients.filter(c => c.role === 'client')
+
+  const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
+
+  const addClient = async () => {
+    setError('')
+    if (!form.name.trim()) { setError('Name is required'); return }
+    const email = form.email.trim().toLowerCase()
+    if (!email) { setError('Email is required — clients log in with their email'); return }
+    if (!isValidEmail(email)) { setError('Please enter a valid email address'); return }
+    if (form.password.length < 4) { setError('Password must be at least 4 characters'); return }
+    if (clients.some(c => c.name.toLowerCase() === form.name.trim().toLowerCase())) {
+      setError('A client with that name already exists'); return
+    }
+    if (clients.some(c => (c.email || '').toLowerCase() === email)) {
+      setError('A client with that email already exists'); return
+    }
+    setLoading(true)
+    const { error: dbError } = await supabase.from('clients').insert({
+      name: form.name.trim(), email, role: 'client', password_hash: hashPassword(form.password),
+    }).select().single()
+    if (dbError) {
+      const msg = dbError.message && dbError.message.includes('idx_clients_email_unique')
+        ? 'That email is already in use'
+        : 'Could not add client: ' + dbError.message
+      setError(msg); setLoading(false); return
+    }
+
+    // No track assignment needed: tracks with an empty assigned_to are visible
+    // to every client (including this new one) and any tracks added later.
+    // assigned_to is now used ONLY to restrict a track to specific clients.
+    await onRefresh()
+    setForm({ name:'', email:'', password:'' })
+    setLoading(false)
+    onToast('Client added')
+  }
+
+  const resetPassword = async (id) => {
+    if (newPass.length < 4) { onToast('Password must be at least 4 characters', 'error'); return }
+    const { error } = await supabase.from('clients').update({ password_hash: hashPassword(newPass) }).eq('id', id)
+    if (error) { onToast('Could not update password', 'error'); return }
+    setEditingId(null); setNewPass(''); onToast('Password updated')
+  }
+
+  const saveNotes = async (id) => {
+    const { error } = await supabase.from('clients').update({ admin_notes: notesDraft }).eq('id', id)
+    if (error) { onToast('Could not save notes', 'error'); return }
+    await onRefresh(); setNotesId(null); setNotesDraft(''); onToast('Notes saved')
+  }
+
+  const copyAllEmails = async () => {
+    const emails = clientList.map(c => c.email).filter(Boolean)
+    if (emails.length === 0) { onToast('No client emails to copy', 'error'); return }
+    try {
+      await navigator.clipboard.writeText(emails.join(', '))
+      onToast('Copied ' + emails.length + ' email' + (emails.length !== 1 ? 's' : ''))
+    } catch (err) {
+      onToast('Could not access clipboard', 'error')
+    }
+  }
+
+  const deleteClient = async (client) => {
+    if (!confirm('Remove ' + client.name + '?')) return
+    await supabase.from('clients').delete().eq('id', client.id)
+    await onRefresh(); onToast('Client removed')
+  }
+
+  return (
+    <>
+      <div className="upload-form">
+        <div className="upload-form-title" style={{marginBottom:16}}>Add new client</div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr auto', gap:12, alignItems:'end'}}>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Name <span style={{color:T.textMuted, fontWeight:400}}>(label only)</span></label>
+            <input className="input" placeholder="e.g. Sarah at Pixar" value={form.name} onChange={e => setForm(f => ({...f, name:e.target.value}))} />
+          </div>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Email <span style={{color:T.amber, fontWeight:400}}>(login)</span></label>
+            <input type="email" className="input" placeholder="client@email.com" value={form.email} onChange={e => setForm(f => ({...f, email:e.target.value}))} />
+          </div>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Password</label>
+            <input type="text" className="input" placeholder="Set a password" value={form.password} onChange={e => setForm(f => ({...f, password:e.target.value}))} />
+          </div>
+          <button className="btn btn-primary" onClick={addClient} disabled={loading}>
+            {loading ? <><span className="spinner"/>Adding…</> : 'Add client'}
+          </button>
+        </div>
+        {error && <div className="error-msg" style={{marginTop:8}}>{error}</div>}
+      </div>
+      <div className="section-header" style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+        <span>{clientList.length} client{clientList.length !== 1 ? 's' : ''}</span>
+        <button className="btn btn-ghost btn-sm" onClick={copyAllEmails} disabled={clientList.length === 0}>
+          Copy all emails
+        </button>
+      </div>
+      {clientList.length === 0
+        ? <div className="empty-state"><div className="empty-icon">👤</div>No clients yet</div>
+        : clientList.map(c => (
+          <div key={c.id} className="client-card" style={{flexDirection:'column', alignItems:'stretch', gap:0}}>
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', gap:12}}>
+              <div style={{minWidth:0}}>
+                <div className="client-name">{c.name}</div>
+                <div className="client-meta">
+                  {c.email
+                    ? <span style={{color:T.amber}}>{c.email}</span>
+                    : <span style={{color:T.red}}>no email — can't log in</span>}
+                  {' · Added '}{new Date(c.created_at).toLocaleDateString()}
+                </div>
+              </div>
+              <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}}>
+                {editingId === c.id ? (
+                  <>
+                    <input className="input" style={{width:160}} type="text" placeholder="New password"
+                      value={newPass} onChange={e => setNewPass(e.target.value)} />
+                    <button className="btn btn-primary btn-sm" onClick={() => resetPassword(c.id)}>Save</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setEditingId(null); setNewPass('') }}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn btn-ghost btn-sm"
+                      onClick={() => { setNotesId(notesId === c.id ? null : c.id); setNotesDraft(c.admin_notes || '') }}>
+                      {notesId === c.id ? 'Close notes' : 'Notes'}
+                    </button>
+                    <button className="btn btn-ghost btn-sm"
+                      onClick={() => setDlId(dlId === c.id ? null : c.id)}>
+                      {dlId === c.id ? 'Hide downloads' : 'View downloads'}
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(c.id)}>Reset password</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => deleteClient(c)}>Remove</button>
+                  </>
+                )}
+              </div>
+            </div>
+            {notesId === c.id && (
+              <div style={{marginTop:12, borderTop:'1px solid ' + T.border, paddingTop:12}}>
+                <div className="track-edit-label" style={{marginBottom:6}}>
+                  Private notes <span style={{color:T.textMuted, fontWeight:400}}>(admin only — never shown to the client)</span>
+                </div>
+                <textarea className="input" rows={3} style={{width:'100%', resize:'vertical', fontFamily:'inherit'}}
+                  placeholder="Company, preferences, anything worth remembering about this client…"
+                  value={notesDraft} onChange={e => setNotesDraft(e.target.value)} />
+                <div style={{display:'flex', gap:8, marginTop:8}}>
+                  <button className="btn btn-primary btn-sm" onClick={() => saveNotes(c.id)}>Save notes</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setNotesId(null); setNotesDraft('') }}>Cancel</button>
+                </div>
+              </div>
+            )}
+            {dlId === c.id && (
+              <div style={{marginTop:12, borderTop:'1px solid ' + T.border, paddingTop:12}}>
+                <ClientDownloads clientId={c.id} tracks={tracks} />
+              </div>
+            )}
+          </div>
+        ))
+      }
+    </>
+  )
+}
+
+// On-demand download history for a single client (clients tab). Fetches only
+// when opened, newest first. Downloads only — the higher-signal action.
+function ClientDownloads({ clientId, tracks }) {
+  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState([])
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      setLoading(true)
+      const { data } = await supabase.from('track_events')
+        .select('track_id, version_idx, created_at')
+        .eq('client_id', clientId)
+        .eq('event_type', 'download')
+        .order('created_at', { ascending: false })
+      if (!alive) return
+      setRows(data || [])
+      setLoading(false)
+    })()
+    return () => { alive = false }
+  }, [clientId])
+
+  const title = (id) => tracks.find(t => t.id === id)?.title || 'Deleted track'
+
+  return (
+    <div>
+      <div className="track-edit-label" style={{marginBottom:6}}>Download history</div>
+      {loading
+        ? <div style={{color:T.textMuted, fontSize:12, display:'flex', alignItems:'center', gap:8}}><span className="spinner"/>Loading…</div>
+        : rows.length === 0
+          ? <div style={{color:T.textMuted, fontSize:13}}>No downloads yet.</div>
+          : (
+            <div style={{display:'flex', flexDirection:'column', gap:3}}>
+              {rows.map((r, i) => (
+                <div key={i} style={{display:'flex', justifyContent:'space-between', gap:12, fontSize:12, background:T.bg2, padding:'5px 10px', borderRadius:2}}>
+                  <span style={{minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{title(r.track_id)}</span>
+                  <span style={{fontFamily:'Space Mono,monospace', color:T.textMuted, flexShrink:0}}>
+                    {new Date(r.created_at).toLocaleDateString()} {new Date(r.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )
+      }
+    </div>
+  )
+}
+
+// ─── Insights / Analytics ─────────────────────────────────────────
+function InsightsManager({ tracks, clients, onToast }) {
+  const [range, setRange]     = useState('30d')   // '7d' | '30d' | 'all'
+  const [defaultRange, setDefaultRange] = useState('30d')
+  const [events, setEvents]   = useState([])
+  const [loading, setLoading] = useState(true)
+  const [ready, setReady]     = useState(false)
+
+  const trackTitle  = (id) => tracks.find(t => t.id === id)?.title || 'Deleted track'
+  const clientLabel = (id) => {
+    if (!id) return 'Removed client'
+    const c = clients.find(x => x.id === id)
+    return c ? (c.name || c.email || 'Client') : 'Removed client'
+  }
+
+  // Load the saved default range once, then drive the initial fetch from it.
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('app_settings').select('value').eq('key', 'insights_default_range').single()
+      const saved = data?.value || '30d'
+      setDefaultRange(saved)
+      setRange(saved)
+      setReady(true)
+    })()
+  }, [])
+
+  useEffect(() => { if (ready) fetchEvents(range) }, [range, ready])
+
+  const fetchEvents = async (r) => {
+    setLoading(true)
+    let q = supabase.from('track_events').select('track_id, client_id, event_type, created_at')
+    if (r !== 'all') {
+      const days = r === '7d' ? 7 : 30
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+      q = q.gte('created_at', since)
+    }
+    const { data } = await q
+    setEvents(data || [])
+    setLoading(false)
+  }
+
+  const saveDefault = async () => {
+    const { error } = await supabase.from('app_settings')
+      .upsert({ key: 'insights_default_range', value: range })
+    if (error) { onToast('Could not save default', 'error'); return }
+    setDefaultRange(range)
+    onToast(`Default range set to ${rangeLabel(range)}`)
+  }
+
+  const rangeLabel = (r) => r === '7d' ? 'last 7 days' : r === '30d' ? 'last 30 days' : 'all time'
+
+  // ── Aggregate in memory (a few hundred/thousand rows — instant) ──
+  const plays     = events.filter(e => e.event_type === 'play')
+  const downloads = events.filter(e => e.event_type === 'download')
+
+  const tally = (rows, key) => {
+    const m = new Map()
+    rows.forEach(r => m.set(r[key], (m.get(r[key]) || 0) + 1))
+    return [...m.entries()].sort((a, b) => b[1] - a[1])
+  }
+
+  const topPlayed     = tally(plays, 'track_id').slice(0, 8)
+  const topDownloaded = tally(downloads, 'track_id').slice(0, 8)
+  const activeClients = tally(events, 'client_id').slice(0, 8)
+  const uniqueClients = new Set(events.map(e => e.client_id).filter(Boolean)).size
+
+  const Leader = ({ title, rows, labelFn, unit }) => (
+    <div style={{background:T.bg1, border:`1px solid ${T.border}`, borderRadius:6, padding:16}}>
+      <div className="track-edit-label" style={{marginBottom:12}}>{title}</div>
+      {rows.length === 0
+        ? <div style={{color:T.textMuted, fontSize:13}}>No {unit} in this range yet.</div>
+        : rows.map(([id, count], i) => (
+          <div key={id || 'none'} style={{display:'flex', alignItems:'center', gap:10, padding:'6px 0', borderTop: i ? `1px solid ${T.border}` : 'none'}}>
+            <span style={{fontFamily:'Space Mono,monospace', fontSize:12, color:T.textMuted, width:18}}>{i + 1}</span>
+            <span style={{flex:1, fontSize:13, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{labelFn(id)}</span>
+            <span style={{fontFamily:'Space Mono,monospace', fontSize:13, color:T.amber}}>{count}</span>
+          </div>
+        ))
+      }
+    </div>
+  )
+
+  return (
+    <>
+      <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12, marginBottom:20}}>
+        <div style={{display:'flex', gap:6}}>
+          {['7d','30d','all'].map(r => (
+            <button key={r} className={`tag-filter ${range === r ? 'active' : ''}`} onClick={() => setRange(r)}>
+              {r === '7d' ? '7 days' : r === '30d' ? '30 days' : 'All time'}
+            </button>
+          ))}
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={saveDefault} disabled={range === defaultRange}>
+          {range === defaultRange ? `Default: ${rangeLabel(range)}` : 'Set as default'}
+        </button>
+      </div>
+
+      {loading
+        ? <div style={{display:'flex', alignItems:'center', gap:10, color:T.textMuted, fontSize:13}}><span className="spinner"/>Loading insights…</div>
+        : (
+          <>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:12, marginBottom:20}}>
+              <Stat label="Plays" value={plays.length} />
+              <Stat label="Downloads" value={downloads.length} />
+              <Stat label="Active clients" value={uniqueClients} />
+            </div>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:12}}>
+              <Leader title="Most played" rows={topPlayed} labelFn={trackTitle} unit="plays" />
+              <Leader title="Most downloaded" rows={topDownloaded} labelFn={trackTitle} unit="downloads" />
+              <Leader title="Most active clients" rows={activeClients} labelFn={clientLabel} unit="activity" />
+            </div>
+          </>
+        )
+      }
+    </>
+  )
+}
+
+function Stat({ label, value }) {
+  return (
+    <div style={{background:T.bg1, border:`1px solid ${T.border}`, borderRadius:6, padding:'16px 18px'}}>
+      <div style={{fontSize:28, fontWeight:600, fontFamily:'Space Grotesk,sans-serif',
+        background:`linear-gradient(135deg, ${T.amber}, ${T.cyan})`, WebkitBackgroundClip:'text', backgroundClip:'text', WebkitTextFillColor:'transparent'}}>
+        {value}
+      </div>
+      <div style={{fontFamily:'Space Mono,monospace', fontSize:11, color:T.textMuted, textTransform:'uppercase', letterSpacing:'0.08em', marginTop:2}}>{label}</div>
+    </div>
   )
 }
 

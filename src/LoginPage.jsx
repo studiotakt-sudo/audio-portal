@@ -3,24 +3,24 @@ import { supabase } from './supabase'
 import { hashPassword } from './App'
 
 export default function LoginPage({ onLogin, onToast }) {
-  const [name, setName]         = useState('')
+  const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
 
   const handleLogin = async () => {
     setError('')
-    if (!name.trim() || !password) { setError('Please enter your name and password'); return }
+    if (!email.trim() || !password) { setError('Please enter your email and password'); return }
     setLoading(true)
 
     const { data, error: dbError } = await supabase
       .from('clients')
       .select('*')
-      .ilike('name', name.trim())  // case-insensitive name match
+      .ilike('email', email.trim())  // case-insensitive email match
       .single()
 
     if (dbError || !data) {
-      setError('Name not found')
+      setError('Email not found')
       setLoading(false); return
     }
 
@@ -39,11 +39,12 @@ export default function LoginPage({ onLogin, onToast }) {
         <div className="login-title">Sign in to access your files</div>
 
         <div className="field">
-          <label className="label">Name</label>
-          <input className={`input ${error ? 'input-error' : ''}`}
-            placeholder="Your name"
-            value={name}
-            onChange={e => setName(e.target.value)}
+          <label className="label">Email</label>
+          <input type="email" className={`input ${error ? 'input-error' : ''}`}
+            placeholder="you@example.com"
+            value={email}
+            autoComplete="email"
+            onChange={e => setEmail(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleLogin()} />
         </div>
 
@@ -52,6 +53,7 @@ export default function LoginPage({ onLogin, onToast }) {
           <input type="password" className={`input ${error ? 'input-error' : ''}`}
             placeholder="••••••••"
             value={password}
+            autoComplete="current-password"
             onChange={e => setPassword(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleLogin()} />
         </div>
