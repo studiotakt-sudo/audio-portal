@@ -302,7 +302,9 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       waveform_peaks: waveformPeaks || [],
       bpm: form.bpm ? parseInt(form.bpm) : null,
       tags: form.tags,
-      assigned_to: form.assignedTo.length ? form.assignedTo : clientList.map(c => c.id),
+      // Empty assigned_to means "visible to all clients" (current and future).
+      // Only populate it to RESTRICT a track to specific clients.
+      assigned_to: form.assignedTo,
       versions: [],
       sort_order: nextOrder,
       featured: false,
@@ -487,7 +489,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                 value={form.bpm} onChange={e => setForm(f => ({...f, bpm:e.target.value}))} />
             </div>
             <div className="field">
-              <label className="label">Assign to clients</label>
+              <label className="label">Restrict to clients <span style={{color:T.textMuted, fontWeight:400}}>(optional — leave empty for all)</span></label>
               <div style={{display:'flex', flexWrap:'wrap', gap:6, marginTop:4}}>
                 {clientList.length === 0
                   ? <span style={{fontSize:12, color:T.textMuted}}>No clients yet — visible to all</span>
@@ -679,7 +681,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                             )}
                           </div>
                           {clientList.length>0 && editState.assignedTo.length===0 && (
-                            <div style={{fontSize:11, color:T.amber, marginTop:6, fontFamily:'Space Mono,monospace'}}>⚠ No clients selected</div>
+                            <div style={{fontSize:11, color:T.cyan, marginTop:6, fontFamily:'Space Mono,monospace'}}>✓ Visible to all clients — select names to restrict</div>
                           )}
                           </div>
                           <div>
@@ -852,7 +854,7 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
       setError('A client with that email already exists'); return
     }
     setLoading(true)
-    const { data: newClient, error: dbError } = await supabase.from('clients').insert({
+    const { error: dbError } = await supabase.from('clients').insert({
       name: form.name.trim(), email, role: 'client', password_hash: hashPassword(form.password),
     }).select().single()
     if (dbError) {
@@ -862,14 +864,9 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
       setError(msg); setLoading(false); return
     }
 
-    const { data: allTracks } = await supabase.from('tracks').select('id, assigned_to')
-    if (allTracks && allTracks.length) {
-      await Promise.all(allTracks.map(track => {
-        const current = track.assigned_to || []
-        if (current.includes(newClient.id)) return Promise.resolve()
-        return supabase.from('tracks').update({ assigned_to: [...current, newClient.id] }).eq('id', track.id)
-      }))
-    }
+    // No track assignment needed: tracks with an empty assigned_to are visible
+    // to every client (including this new one) and any tracks added later.
+    // assigned_to is now used ONLY to restrict a track to specific clients.
     await onRefresh()
     setForm({ name:'', email:'', password:'' })
     setLoading(false)
