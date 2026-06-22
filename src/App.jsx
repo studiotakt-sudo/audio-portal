@@ -452,7 +452,8 @@ export default function App() {
           if (!playLoggedRef.current && t >= 4) {
             playLoggedRef.current = true
             const tr = currentTrackRef.current
-            if (tr) logTrackEvent({
+            // Skip analytics for admin accounts — only client activity counts.
+            if (tr && clientRowRef.current?.role !== 'admin') logTrackEvent({
               trackId: tr.id,
               clientId: clientRowRef.current?.id,
               eventType: 'play',

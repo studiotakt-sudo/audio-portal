@@ -168,11 +168,13 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
         <button className={`tab ${tab === 'tracks' ? 'active' : ''}`} onClick={() => setTab('tracks')}>🎵 Tracks</button>
         <button className={`tab ${tab === 'clients' ? 'active' : ''}`} onClick={() => setTab('clients')}>👤 Clients</button>
         <button className={`tab ${tab === 'insights' ? 'active' : ''}`} onClick={() => setTab('insights')}>📊 Insights</button>
+        <button className={`tab ${tab === 'admins' ? 'active' : ''}`} onClick={() => setTab('admins')}>🔑 Admins</button>
         <button className={`tab ${tab === 'theme' ? 'active' : ''}`} onClick={() => setTab('theme')}>🎨 Theme</button>
       </div>
       {tab === 'tracks' && <TrackManager tracks={tracks} clients={clients} onRefresh={fetchAll} onPlay={onPlay} playerProps={playerProps} onToast={onToast} />}
       {tab === 'clients' && <ClientManager clients={clients} tracks={tracks} onRefresh={fetchAll} onToast={onToast} />}
       {tab === 'insights' && <InsightsManager tracks={tracks} clients={clients} onToast={onToast} />}
+      {tab === 'admins' && <AdminManager clients={clients} currentAdmin={clientRow} onRefresh={fetchAll} onToast={onToast} />}
       {tab === 'theme' && <ThemeManager theme={theme} onThemeChange={onThemeChange} onToast={onToast} />}
     </div>
   )
@@ -822,6 +824,122 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       {localTracks.length === 0 && !pendingFile && (
         <div className="empty-state"><div className="empty-icon">🎧</div>Upload your first track to get started</div>
       )}
+    </>
+  )
+}
+
+// ─── Admin Manager ─────────────────────────────────────────────────
+// Manages admin logins. Admins are just clients rows with role:'admin' — no
+// separate backend. The protected base admin (by email) can never be removed.
+const PROTECTED_ADMIN_EMAIL = 'cypher@cypher.audio'
+
+function AdminManager({ clients, currentAdmin, onRefresh, onToast }) {
+  const [form, setForm]           = useState({ name:'', email:'', password:'' })
+  const [error, setError]         = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [newPass, setNewPass]     = useState('')
+  const adminList = clients.filter(c => c.role === 'admin')
+
+  const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
+  const isProtected = (c) => (c.email || '').toLowerCase() === PROTECTED_ADMIN_EMAIL
+
+  const addAdmin = async () => {
+    setError('')
+    if (!form.name.trim()) { setError('Name is required'); return }
+    const email = form.email.trim().toLowerCase()
+    if (!email) { setError('Email is required — admins log in with their email'); return }
+    if (!isValidEmail(email)) { setError('Please enter a valid email address'); return }
+    if (form.password.length < 4) { setError('Password must be at least 4 characters'); return }
+    if (clients.some(c => (c.email || '').toLowerCase() === email)) {
+      setError('An account with that email already exists'); return
+    }
+    setLoading(true)
+    const { error: dbError } = await supabase.from('clients').insert({
+      name: form.name.trim(), email, role: 'admin', password_hash: hashPassword(form.password),
+    }).select().single()
+    if (dbError) {
+      const msg = dbError.message && dbError.message.includes('idx_clients_email_unique')
+        ? 'That email is already in use'
+        : 'Could not add admin: ' + dbError.message
+      setError(msg); setLoading(false); return
+    }
+    await onRefresh()
+    setForm({ name:'', email:'', password:'' })
+    setLoading(false)
+    onToast('Admin added')
+  }
+
+  const resetPassword = async (id) => {
+    if (newPass.length < 4) { onToast('Password must be at least 4 characters', 'error'); return }
+    const { error } = await supabase.from('clients').update({ password_hash: hashPassword(newPass) }).eq('id', id)
+    if (error) { onToast('Could not update password', 'error'); return }
+    setEditingId(null); setNewPass(''); onToast('Password updated')
+  }
+
+  const deleteAdmin = async (admin) => {
+    if (isProtected(admin)) { onToast('The base admin cannot be removed', 'error'); return }
+    if (admin.id === currentAdmin?.id) { onToast("You can't remove the account you're logged in as", 'error'); return }
+    if (!confirm('Remove admin ' + (admin.name || admin.email) + '?')) return
+    await supabase.from('clients').delete().eq('id', admin.id)
+    await onRefresh(); onToast('Admin removed')
+  }
+
+  return (
+    <>
+      <div className="upload-form">
+        <div className="upload-form-title" style={{marginBottom:16}}>Add new admin</div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr auto', gap:12, alignItems:'end'}}>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Name <span style={{color:T.textMuted, fontWeight:400}}>(label only)</span></label>
+            <input className="input" placeholder="e.g. Alex (studio)" value={form.name} onChange={e => setForm(f => ({...f, name:e.target.value}))} />
+          </div>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Email <span style={{color:T.amber, fontWeight:400}}>(login)</span></label>
+            <input type="email" className="input" placeholder="admin@email.com" value={form.email} onChange={e => setForm(f => ({...f, email:e.target.value}))} />
+          </div>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Password</label>
+            <input type="text" className="input" placeholder="Set a password" value={form.password} onChange={e => setForm(f => ({...f, password:e.target.value}))} />
+          </div>
+          <button className="btn btn-primary" onClick={addAdmin} disabled={loading}>
+            {loading ? <><span className="spinner"/>Adding…</> : 'Add admin'}
+          </button>
+        </div>
+        {error && <div className="error-msg" style={{marginTop:8}}>{error}</div>}
+      </div>
+      <div className="section-header">{adminList.length} admin{adminList.length!==1?'s':''}</div>
+      {adminList.length === 0
+        ? <div className="empty-state"><div className="empty-icon">🔑</div>No admins yet</div>
+        : adminList.map(c => (
+          <div key={c.id} className="client-card">
+            <div style={{minWidth:0}}>
+              <div className="client-name">
+                {c.name}
+                {isProtected(c) && <span style={{marginLeft:8, fontSize:10, fontFamily:'Space Mono,monospace', color:T.cyan, border:`1px solid ${T.cyan}`, borderRadius:2, padding:'1px 5px'}}>BASE</span>}
+                {c.id === currentAdmin?.id && <span style={{marginLeft:8, fontSize:10, fontFamily:'Space Mono,monospace', color:T.textMuted}}>you</span>}
+              </div>
+              <div className="client-meta"><span style={{color:T.amber}}>{c.email || 'no email'}</span></div>
+            </div>
+            <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}}>
+              {editingId === c.id ? (
+                <>
+                  <input className="input" style={{width:160}} type="text" placeholder="New password"
+                    value={newPass} onChange={e => setNewPass(e.target.value)} />
+                  <button className="btn btn-primary btn-sm" onClick={() => resetPassword(c.id)}>Save</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setEditingId(null); setNewPass('') }}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(c.id)}>Reset password</button>
+                  {!isProtected(c) && c.id !== currentAdmin?.id &&
+                    <button className="btn btn-danger btn-sm" onClick={() => deleteAdmin(c)}>Remove</button>}
+                </>
+              )}
+            </div>
+          </div>
+        ))
+      }
     </>
   )
 }

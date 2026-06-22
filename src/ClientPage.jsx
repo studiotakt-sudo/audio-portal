@@ -257,7 +257,8 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
     const a = document.createElement('a')
     a.href = data.signedUrl; a.download = track.file_name || track.title; a.click()
     onToast('Download started')
-    logTrackEvent({
+    // Skip analytics for admin accounts — only client activity counts.
+    if (clientRow?.role !== 'admin') logTrackEvent({
       trackId: track.id,
       clientId: clientRow?.id,
       eventType: 'download',
