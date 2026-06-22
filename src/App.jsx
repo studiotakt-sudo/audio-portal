@@ -1,38 +1,70 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from './supabase'
 import LoginPage from './LoginPage'
 import AdminPage from './AdminPage'
 import ClientPage from './ClientPage'
 
+// ── Cypher Cache palette ──────────────────────────────────────────
+// Brand imagery: black field, organic coral forms radiating to cyan cores,
+// crystalline accents. The signature is the coral→cyan gradient; everything
+// structural stays neutral grey/black so the accent reads as energy, not noise.
+// Token names `amber`/`amberDim` are retained (remapped to coral) so existing
+// references keep working; `cyan`/`cyanDim` and the gradient tokens are new.
 export const DEFAULT_THEME = {
-  bg0: '#0a0b0f', bg1: '#11131a', bg2: '#191c26', bg3: '#222534',
-  border: '#2a2e42', amber: '#e8a44a', amberDim: '#7a5520',
+  bg0: '#0a0a0a', bg1: '#141414', bg2: '#1d1d1d', bg3: '#262626',
+  border: '#2a2a2a',
+  amber: '#e8432c', amberDim: '#5e2118',   // coral (primary accent)
+  cyan: '#3fd9c4', cyanDim: '#1c5c54',      // cyan (secondary accent)
+  gold: '#f0a93a',                          // amber, sparing tertiary use only
   green: '#4ade80', red: '#f87171',
-  textPrimary: '#f0eee8', textSecondary: '#8b8fa8', textMuted: '#4a4e65',
+  textPrimary: '#f0efed', textSecondary: '#999999', textMuted: '#6a6a6a',
 }
 
 export function buildCss(t) {
+  const coral = t.amber, cyan = t.cyan || '#3fd9c4'
+  // The signature gradient — coral core bleeding to cyan, echoing the brand render.
+  const grad = `linear-gradient(135deg, ${coral} 0%, ${coral} 35%, ${cyan} 100%)`
+  const gradRadial = `radial-gradient(circle at 30% 30%, ${coral} 0%, ${coral} 45%, ${cyan} 100%)`
   return `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Space Grotesk', sans-serif; background: ${t.bg0}; color: ${t.textPrimary}; min-height: 100vh; }
   ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: ${t.bg1}; } ::-webkit-scrollbar-thumb { background: ${t.border}; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: ${coral}; }
+  .grad-text { background: ${grad}; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
   .portal { min-height: 100vh; display: flex; flex-direction: column; }
-  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 32px; height: 60px; background: ${t.bg1}; border-bottom: 1px solid ${t.border}; position: sticky; top: 0; z-index: 100; }
-  .topbar-brand { font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; color: ${t.amber}; display: flex; align-items: center; gap: 10px; }
-  .topbar-brand-dot { width: 8px; height: 8px; border-radius: 50%; background: ${t.amber}; animation: pulse 2s ease-in-out infinite; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 32px; height: 84px;
+    background: url('/topbar-bg.png') center 35% / cover;
+    border-bottom: 1px solid ${t.border};
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topbar::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: rgba(10,11,15,0.68);
+    z-index: 0;
+  }
+  .topbar { position: relative; }
+  .topbar-brand, .topbar-right { position: relative; z-index: 1; }
+  .topbar-brand { color: #ffffff; text-shadow: 0 1px 6px rgba(0,0,0,0.6); }
+  .topbar-right .mode-badge { backdrop-filter: blur(6px); background: rgba(10,11,15,0.7); }
+  .topbar-right .btn-ghost { backdrop-filter: blur(6px); background: rgba(10,11,15,0.4); }
+  .topbar-brand { font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; display: flex; align-items: center; gap: 10px; }
+  .topbar-brand-dot { width: 8px; height: 8px; border-radius: 50%; background: ${gradRadial}; animation: pulse 2s ease-in-out infinite; box-shadow: 0 0 8px ${coral}, 0 0 4px rgba(0,0,0,0.5); }
   @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
   .topbar-right { display: flex; align-items: center; gap: 16px; }
   .mode-badge { font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; padding: 4px 10px; border-radius: 2px; text-transform: uppercase; background: ${t.bg3}; color: ${t.textSecondary}; border: 1px solid ${t.border}; }
   .mode-badge.admin { background: ${t.bg0}; color: ${t.amber}; border-color: ${t.amberDim}; }
   .btn { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 500; padding: 8px 18px; border-radius: 3px; border: none; cursor: pointer; transition: all 0.15s; }
-  .btn-primary { background: ${t.amber}; color: ${t.bg0}; } .btn-primary:hover { filter: brightness(1.15); } .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: ${grad}; color: ${t.bg0}; font-weight: 600; } .btn-primary:hover { filter: brightness(1.08) saturate(1.1); } .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-ghost { background: transparent; color: ${t.textSecondary}; border: 1px solid ${t.border}; } .btn-ghost:hover { border-color: ${t.textSecondary}; color: ${t.textPrimary}; }
   .btn-danger { background: ${t.bg0}; color: ${t.red}; border: 1px solid ${t.red}; opacity: 0.7; } .btn-danger:hover { opacity: 1; }
   .btn-sm { font-size: 11px; padding: 5px 12px; }
   .btn-icon { background: transparent; border: 1px solid ${t.border}; color: ${t.textSecondary}; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 3px; cursor: pointer; font-size: 14px; transition: all 0.15s; }
-  .btn-icon:hover { border-color: ${t.amber}; color: ${t.amber}; }
-  .btn-icon.edit-active { border-color: ${t.amber}; color: ${t.amber}; background: ${t.bg0}; }
+  .btn-icon:hover { border-color: ${cyan}; color: ${cyan}; }
+  .btn-icon.edit-active { border-color: ${coral}; color: ${coral}; background: ${t.bg0}; }
   .field { margin-bottom: 16px; }
   .label { display: block; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; color: ${t.textSecondary}; text-transform: uppercase; margin-bottom: 6px; }
   .input { width: 100%; background: ${t.bg2}; border: 1px solid ${t.border}; color: ${t.textPrimary}; padding: 10px 14px; border-radius: 3px; font-family: 'Space Grotesk', sans-serif; font-size: 14px; transition: border-color 0.15s; }
@@ -61,21 +93,21 @@ export function buildCss(t) {
   .search-input { padding-left: 36px !important; }
   .tag-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
   .tag-filter { font-family: 'Space Mono', monospace; font-size: 11px; padding: 4px 10px; border-radius: 2px; cursor: pointer; border: 1px solid ${t.border}; background: ${t.bg2}; color: ${t.textSecondary}; transition: all 0.15s; }
-  .tag-filter:hover { border-color: ${t.amber}; color: ${t.amber}; }
-  .tag-filter.active { background: ${t.bg0}; border-color: ${t.amber}; color: ${t.amber}; }
+  .tag-filter:hover { border-color: ${cyan}; color: ${cyan}; }
+  .tag-filter.active { background: ${t.bg0}; border-color: ${coral}; color: ${coral}; }
   .tag-filter-label { font-size: 11px; color: ${t.textMuted}; align-self: center; font-family: 'Space Mono', monospace; white-space: nowrap; }
   .track-list { display: flex; flex-direction: column; gap: 2px; }
   .track-row { display: grid; grid-template-columns: 40px 1fr auto; gap: 16px; align-items: center; background: ${t.bg1}; border: 1px solid transparent; border-radius: 4px; padding: 12px 16px; transition: border-color 0.15s; cursor: pointer; }
   .track-row:hover { border-color: ${t.border}; }
-  .track-row.playing { border-color: ${t.amberDim}; background: ${t.bg2}; cursor: default; }
-  .track-row.playing:hover { border-color: ${t.amberDim}; background: ${t.bg2}; }
+  .track-row.playing { border-color: transparent; background: ${t.bg2}; cursor: default; position: relative; border-left: 2px solid transparent; border-image: ${grad} 1; box-shadow: inset 0 0 0 1px rgba(232,67,44,0.12); }
+  .track-row.playing:hover { background: ${t.bg2}; }
   .track-row:not(.playing):hover { background: ${t.bg2}; }
-  .track-row.editing { border-color: ${t.amber} !important; border-radius: 4px 4px 0 0; background: ${t.bg2}; }
+  .track-row.editing { border-color: ${coral} !important; border-radius: 4px 4px 0 0; background: ${t.bg2}; }
   .track-num { font-family: 'Space Mono', monospace; font-size: 12px; color: ${t.textMuted}; text-align: center; }
-  .track-num.playing-indicator { color: ${t.amber}; font-size: 16px; }
+  .track-num.playing-indicator { font-size: 16px; background: ${grad}; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
   .track-info { min-width: 0; }
   .track-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .track-name.playing { color: ${t.amber}; }
+  .track-name.playing { background: ${grad}; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
   .track-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
   .track-uploader { font-size: 11px; color: ${t.textMuted}; }
   .track-tags-inline { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -88,16 +120,16 @@ export function buildCss(t) {
   .track-edit-label { font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: ${t.textMuted}; text-transform: uppercase; margin-bottom: 8px; }
   .track-edit-actions { display: flex; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid ${t.border}; }
   .inline-player { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-  .inline-play-btn { width: 30px; height: 30px; border-radius: 50%; background: ${t.amber}; color: ${t.bg0}; border: none; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
-  .inline-play-btn:hover { filter: brightness(1.15); }
+  .inline-play-btn { width: 30px; height: 30px; border-radius: 50%; background: ${grad}; color: ${t.bg0}; border: none; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+  .inline-play-btn:hover { filter: brightness(1.08) saturate(1.1); }
   .inline-waveform { flex: 1; position: relative; height: 36px; cursor: pointer; }
   .inline-waveform canvas { display: block; width: 100%; height: 100%; }
-  .inline-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: ${t.amber}; pointer-events: none; transform: translateX(-50%); }
+  .inline-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: ${cyan}; pointer-events: none; transform: translateX(-50%); box-shadow: 0 0 6px ${cyan}; }
   .inline-times { display: flex; justify-content: space-between; margin-top: 3px; }
   .time-label { font-family: 'Space Mono', monospace; font-size: 10px; color: ${t.textMuted}; }
   .tabs { display: flex; margin-bottom: 28px; border-bottom: 1px solid ${t.border}; }
   .tab { padding: 10px 20px; font-size: 13px; font-weight: 500; color: ${t.textSecondary}; cursor: pointer; border: none; background: none; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; font-family: 'Space Grotesk', sans-serif; }
-  .tab:hover { color: ${t.textPrimary}; } .tab.active { color: ${t.amber}; border-bottom-color: ${t.amber}; }
+  .tab:hover { color: ${t.textPrimary}; } .tab.active { color: ${coral}; border-bottom: 2px solid transparent; border-image: ${grad} 1; }
   .client-card { background: ${t.bg1}; border: 1px solid ${t.border}; border-radius: 6px; padding: 16px 20px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
   .client-name { font-size: 14px; font-weight: 500; } .client-meta { font-family: 'Space Mono', monospace; font-size: 11px; color: ${t.textSecondary}; margin-top: 2px; }
   .empty-state { padding: 60px 20px; text-align: center; color: ${t.textMuted}; font-size: 14px; }
@@ -108,7 +140,7 @@ export function buildCss(t) {
   .toast-error { background: ${t.bg0}; border: 1px solid ${t.red}; color: ${t.red}; }
   @keyframes slideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }
   .progress-bar-upload { height: 2px; background: ${t.bg3}; border-radius: 1px; margin-top: 12px; }
-  .progress-bar-upload-fill { height: 100%; background: ${t.amber}; border-radius: 1px; transition: width 0.2s ease; }
+  .progress-bar-upload-fill { height: 100%; background: ${grad}; border-radius: 1px; transition: width 0.2s ease; }
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2); border-top-color: ${t.amber}; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 8px; vertical-align: middle; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .login-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 16px; }
@@ -141,48 +173,73 @@ export function hashPassword(str) {
 }
 
 // ─── Inline waveform seekbar (used inside track rows) ─────────────
-export function InlineSeekbar({ peaks, progress, duration, onSeek, accentColor, mutedColor }) {
-  const canvasRef = useRef(null)
+// Progress advances ~4x/sec. Redrawing the canvas (clearRect + repaint) on
+// every tick blanks the waveform momentarily each frame — that's the flicker.
+// Instead we draw the bars ONCE (only when peaks/colors change): a muted base
+// layer and an accent "played" layer stacked on top. On each progress tick we
+// only update the played layer's clip-path via inline style — a style-only
+// change that composites without ever clearing the canvas, so no flash.
+export function InlineSeekbar({ peaks, progress, duration, onSeek, accentColor, mutedColor, cyanColor }) {
+  const baseRef   = useRef(null)
+  const playedRef = useRef(null)
 
-  useEffect(() => {
-    const canvas = canvasRef.current
+  const drawLayer = (canvas, color, alphaFor, color2) => {
     if (!canvas || !peaks || peaks.length === 0) return
     const ctx = canvas.getContext('2d')
     const W = canvas.width, H = canvas.height
     ctx.clearRect(0, 0, W, H)
-    const progressRatio = duration ? progress / duration : 0
-    const playedX = progressRatio * W
+    // If a second color is given, paint bars with a horizontal gradient
+    // (coral → cyan) so the played portion carries the brand signature.
+    let fill = color
+    if (color2) {
+      fill = ctx.createLinearGradient(0, 0, W, 0)
+      fill.addColorStop(0, color)
+      fill.addColorStop(1, color2)
+    }
     const barW = W / peaks.length
     peaks.forEach((peak, i) => {
       const x = i * barW
       const barH = Math.max(2, peak * H * 0.85)
       const y = (H - barH) / 2
-      const isPlayed = x < playedX
-      ctx.fillStyle = isPlayed ? (accentColor || '#e8a44a') : (mutedColor || '#2a2e42')
-      ctx.globalAlpha = isPlayed ? (0.5 + peak * 0.4) : (0.25 + peak * 0.35)
+      ctx.fillStyle = fill
+      ctx.globalAlpha = alphaFor(peak)
       ctx.fillRect(x, y, Math.max(1, barW - 0.8), barH)
     })
     ctx.globalAlpha = 1
-  }, [peaks, progress, duration, accentColor, mutedColor])
+  }
+
+  // Draw both layers only when the waveform or colors change — NOT on progress.
+  useEffect(() => {
+    drawLayer(baseRef.current, mutedColor || '#2a2a2a', p => 0.25 + p * 0.35)
+    drawLayer(playedRef.current, accentColor || '#e8432c', p => 0.55 + p * 0.4, cyanColor || '#3fd9c4')
+  }, [peaks, accentColor, mutedColor, cyanColor])
+
+  const ratio = duration ? Math.max(0, Math.min(1, progress / duration)) : 0
 
   const handleClick = (e) => {
     if (!duration) return
-    const canvas = canvasRef.current
+    const canvas = baseRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    const ratio = (e.clientX - rect.left) / rect.width  // use rendered width, not canvas.width
-    onSeek(Math.max(0, Math.min(1, ratio)) * duration)
+    const r = (e.clientX - rect.left) / rect.width  // use rendered width, not canvas.width
+    onSeek(Math.max(0, Math.min(1, r)) * duration)
   }
+
+  const layerStyle = { position:'absolute', top:0, left:0, display:'block', width:'100%', height:'100%' }
 
   return (
     <div className="inline-waveform"
       onClick={e => { e.stopPropagation(); handleClick(e) }}
-      style={{cursor: duration ? 'pointer' : 'default', paddingTop:6, paddingBottom:6, marginTop:-6, marginBottom:-6}}>
-      <canvas ref={canvasRef} width={800} height={36} style={{display:'block', width:'100%', height:36}} />
+      style={{cursor: duration ? 'pointer' : 'default', paddingTop:6, paddingBottom:6, marginTop:-6, marginBottom:-6, position:'relative'}}>
+      {/* spacer canvas establishes the box height; layers are absolutely stacked */}
+      <canvas width={800} height={36} style={{display:'block', width:'100%', height:36, visibility:'hidden'}} />
+      <canvas ref={baseRef} width={800} height={36} style={layerStyle} />
+      <canvas ref={playedRef} width={800} height={36}
+        style={{ ...layerStyle, clipPath: `inset(0 ${(1 - ratio) * 100}% 0 0)` }} />
       {duration > 0 && (
         <div className="inline-playhead" style={{
-          left: `${duration ? (progress / duration) * 100 : 0}%`,
-          background: accentColor || '#e8a44a'
+          left: `${ratio * 100}%`,
+          background: cyanColor || '#3fd9c4'
         }} />
       )}
     </div>
@@ -276,11 +333,13 @@ export default function App() {
     // Guard against double-click while already loading this track
     if (loadingRef.current === track.id) return
 
-    // Same track — just toggle
+    // Same track — just toggle. Read the element's real state (el.paused)
+    // rather than a synced ref, which lags one commit behind and causes
+    // missed / no-op clicks during rapid toggling or mid-render.
     const cur = currentTrackRef.current
     if (cur?.id === track.id && cur?.versionIdx === track.versionIdx) {
-      if (isPlayingRef.current) el.pause()
-      else el.play().catch(console.error)
+      if (el.paused) el.play().catch(console.error)
+      else el.pause()
       return
     }
 
@@ -324,22 +383,39 @@ export default function App() {
   const togglePlay = useCallback(() => {
     const el = audioRef.current
     if (!el || !currentTrackRef.current) return
-    if (isPlayingRef.current) el.pause()
-    else el.play().catch(console.error)
+    // el.paused is the synchronous source of truth; isPlayingRef lags a commit
+    if (el.paused) el.play().catch(console.error)
+    else el.pause()
   }, [])
 
   const seekTo = useCallback((time) => {
     if (audioRef.current) audioRef.current.currentTime = time
   }, [])
 
+  // Stylesheet only depends on theme — memoize so a progress tick (4x/sec)
+  // doesn't recompute and re-inject this entire <style> block every time.
+  // NOTE: these hooks must stay ABOVE the early `loading` return — hooks must
+  // run in the same order on every render.
+  const css = useMemo(() => buildCss(theme), [theme])
+
+  // Split the bundle: everything that is stable across a playback tick goes in
+  // playerBase (memoized by identity), while progress/duration — which change
+  // ~4x/sec — are passed separately so only the active row consumes them.
+  const playerBase = useMemo(() => ({
+    currentTrack, isPlaying, signedUrl,
+    onTogglePlay: togglePlay, onSeek: seekTo,
+    theme, loadingTrackId, preloadUrls,
+  }), [currentTrack, isPlaying, signedUrl, togglePlay, seekTo, theme, loadingTrackId, preloadUrls])
+
+  const playerProps = useMemo(() => ({
+    ...playerBase, progress, duration,
+  }), [playerBase, progress, duration])
+
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background: DEFAULT_THEME.bg0, color: DEFAULT_THEME.textMuted, fontFamily:'Space Mono,monospace', fontSize:13 }}>
       <span className="spinner" style={{borderTopColor: DEFAULT_THEME.amber}} />Loading…
     </div>
   )
-
-  const css = buildCss(theme)
-  const playerProps = { currentTrack, isPlaying, progress, duration, signedUrl, onTogglePlay: togglePlay, onSeek: seekTo, theme, loadingTrackId, preloadUrls }
 
   return (
     <>
@@ -359,7 +435,7 @@ export default function App() {
             {clientRow && (
               <>
                 <span className={`mode-badge ${clientRow.role}`}>{clientRow.role === 'admin' ? '⬡ Admin' : 'Client'}</span>
-                <span style={{ fontSize:13, color: theme.textSecondary }}>{clientRow.name}</span>
+                <span style={{ fontSize:13, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{clientRow.name}</span>
                 <button className="btn btn-ghost btn-sm" onClick={handleSignOut}>Sign out</button>
               </>
             )}

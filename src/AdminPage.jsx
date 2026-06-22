@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { supabase } from './supabase'
 import { DEFAULT_THEME as T, fmtTime, InlineSeekbar } from './App'
 
@@ -14,15 +14,15 @@ function fmtDuration(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-function TrackMeta({ size, duration, bpm }) {
+const TrackMeta = memo(function TrackMeta({ size, duration, bpm }) {
   const parts = []
   if (duration) parts.push(fmtDuration(duration))
   if (bpm) parts.push(`${bpm} BPM`)
   if (size) parts.push((size / 1024 / 1024).toFixed(1) + ' MB')
   return <div className="track-duration">{parts.join(' · ')}</div>
-}
+})
 
-function WaveformBg({ peaks, baseColor }) {
+const WaveformBg = memo(function WaveformBg({ peaks, baseColor }) {
   const canvasRef = useRef(null)
   useEffect(() => {
     const canvas = canvasRef.current
@@ -35,7 +35,7 @@ function WaveformBg({ peaks, baseColor }) {
       const x = i * barW
       const barH = Math.max(1, peak * 16)
       const y = (H - barH) / 2
-      ctx.fillStyle = baseColor || '#2a2e42'
+      ctx.fillStyle = baseColor || '#2a2a2a'
       ctx.globalAlpha = 0.25 + peak * 0.4
       ctx.fillRect(x, y, Math.max(1, barW - 0.8), barH)
     })
@@ -45,7 +45,7 @@ function WaveformBg({ peaks, baseColor }) {
     <canvas ref={canvasRef} width={500} height={40}
       style={{ display:'block', width:'100%', height:40, pointerEvents:'none' }} />
   )
-}
+})
 
 // Preview of a stored featured image
 function FeaturedImagePreview({ path }) {
@@ -118,6 +118,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
   const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme, loadingTrackId } = playerProps || {}
   const accentColor = theme?.amber || T.amber
   const mutedColor  = theme?.border || T.border
+  const cyanColor   = theme?.cyan || T.cyan
   const [dragOver, setDragOver]       = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
   const [extracting, setExtracting]   = useState(false)
@@ -534,7 +535,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                             <InlineSeekbar
                               peaks={track.waveform_peaks || []}
                               progress={progress} duration={duration}
-                              onSeek={onSeek} accentColor={accentColor} mutedColor={mutedColor} />
+                              onSeek={onSeek} accentColor={accentColor} mutedColor={mutedColor} cyanColor={cyanColor} />
                           </div>
                           <div className="inline-times">
                             <span className="time-label">{fmtTime(progress)}</span>
@@ -846,8 +847,10 @@ export function ThemeManager({ theme, onThemeChange, onToast }) {
     { key: 'bg2',          label: 'Surface raised' },
     { key: 'bg3',          label: 'Surface top' },
     { key: 'border',       label: 'Borders' },
-    { key: 'amber',        label: 'Accent colour' },
-    { key: 'amberDim',     label: 'Accent dim' },
+    { key: 'amber',        label: 'Accent — coral' },
+    { key: 'amberDim',     label: 'Coral dim' },
+    { key: 'cyan',         label: 'Accent — cyan' },
+    { key: 'cyanDim',      label: 'Cyan dim' },
     { key: 'textPrimary',  label: 'Text primary' },
     { key: 'textSecondary',label: 'Text secondary' },
     { key: 'textMuted',    label: 'Text muted' },
@@ -877,15 +880,15 @@ export function ThemeManager({ theme, onThemeChange, onToast }) {
       <div style={{ marginBottom: 20 }}>
         <div className="track-edit-label" style={{ marginBottom: 10 }}>Preview</div>
         <div className="theme-preview-bar" style={{ background: local.bg1, borderColor: local.border }}>
-          <div style={{ width: 28, height: 28, borderRadius: '50%', background: local.amber, flexShrink: 0 }} />
+          <div style={{ width: 28, height: 28, borderRadius: '50%', background: `radial-gradient(circle at 30% 30%, ${local.amber}, ${local.cyan || '#3fd9c4'})`, flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
             <div style={{ height: 6, borderRadius: 3, background: local.border, overflow: 'hidden' }}>
-              <div style={{ width: '40%', height: '100%', background: local.amber, borderRadius: 3 }} />
+              <div style={{ width: '40%', height: '100%', background: `linear-gradient(90deg, ${local.amber}, ${local.cyan || '#3fd9c4'})`, borderRadius: 3 }} />
             </div>
           </div>
           <div style={{ fontFamily: 'Space Mono,monospace', fontSize: 11, color: local.textMuted }}>0:42 / 1:45</div>
           <div style={{ padding: '4px 10px', borderRadius: 2, background: local.bg0, border: `1px solid ${local.amber}`, color: local.amber, fontFamily: 'Space Mono,monospace', fontSize: 10 }}>ADMIN</div>
-          <div style={{ padding: '6px 14px', borderRadius: 3, background: local.amber, color: local.bg0, fontSize: 12, fontWeight: 600 }}>Button</div>
+          <div style={{ padding: '6px 14px', borderRadius: 3, background: `linear-gradient(135deg, ${local.amber}, ${local.cyan || '#3fd9c4'})`, color: local.bg0, fontSize: 12, fontWeight: 600 }}>Button</div>
         </div>
       </div>
       <div className="theme-grid">

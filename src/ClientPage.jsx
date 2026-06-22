@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo, useCallback } from 'react'
 import { supabase } from './supabase'
 import { DEFAULT_THEME as T, fmtTime, InlineSeekbar } from './App'
 
@@ -8,7 +8,7 @@ function fmtDuration(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-function WaveformBg({ peaks, baseColor }) {
+const WaveformBg = memo(function WaveformBg({ peaks, baseColor }) {
   const canvasRef = useRef(null)
   useEffect(() => {
     const canvas = canvasRef.current
@@ -21,7 +21,7 @@ function WaveformBg({ peaks, baseColor }) {
       const x = i * barW
       const barH = Math.max(1, peak * 16)
       const y = (H - barH) / 2
-      ctx.fillStyle = baseColor || '#2a2e42'
+      ctx.fillStyle = baseColor || '#2a2a2a'
       ctx.globalAlpha = 0.25 + peak * 0.4
       ctx.fillRect(x, y, Math.max(1, barW - 0.8), barH)
     })
@@ -31,7 +31,7 @@ function WaveformBg({ peaks, baseColor }) {
     <canvas ref={canvasRef} width={500} height={40}
       style={{ display:'block', width:'100%', height:40, pointerEvents:'none' }} />
   )
-}
+})
 
 function FeaturedCard({ track, isPlaying, onPlay }) {
   const [bgUrl, setBgUrl] = useState(null)
@@ -82,6 +82,136 @@ function FeaturedCard({ track, isPlaying, onPlay }) {
   )
 }
 
+// Module-scope + memoized so a progress tick on the active row never re-renders
+// or remounts the other rows (or their idle waveform canvases). Inactive rows
+// receive progress=0/duration=0 (constant), so memo holds them stable on ticks.
+const TrackRowBase = memo(function TrackRowBase({
+  track, i, isActive, activeVersionIdx, isExpanded, isPlaying, loadingTrackId,
+  accentColor, mutedColor, cyanColor, progress, duration,
+  onPlay, onTogglePlay, onSeek, onToggleExpand, onDownload,
+}) {
+  const versions = track.versions || []
+  const peaks    = track.waveform_peaks || []
+
+  return (
+    <div>
+      <div
+        className={`track-row ${isActive ? 'playing' : ''}`}
+        style={{ gridTemplateColumns:'40px 1fr auto', alignItems: isActive ? 'start' : 'center' }}
+        onClick={() => onPlay(track)}
+      >
+        {/* Number / playing indicator */}
+        <div className={`track-num ${isActive ? 'playing-indicator' : ''}`} style={{paddingTop: isActive ? 4 : 0}}>
+          {loadingTrackId === track.id
+            ? <span className="spinner" style={{margin:0, width:12, height:12, borderWidth:2}} />
+            : isActive ? '♪' : i + 1
+          }
+        </div>
+
+        {/* Main content column */}
+        <div style={{display:'flex', flexDirection:'column', gap:4, minWidth:0}}>
+          <div className={`track-name ${isActive ? 'playing' : ''}`}>
+            {track.title}
+            {versions.length > 0 && (
+              <span style={{fontSize:10, fontFamily:'Space Mono,monospace', color:accentColor, marginLeft:8, opacity:0.8}}>
+                +{versions.length} version{versions.length!==1?'s':''}
+              </span>
+            )}
+          </div>
+
+          {/* Inactive: static waveform bg */}
+          {!isActive && peaks.length > 0 && (
+            <WaveformBg peaks={peaks} baseColor={mutedColor} />
+          )}
+
+          {/* Active: inline player */}
+          {isActive && (
+            <div onClick={e => e.stopPropagation()}>
+              <div className="inline-player">
+                <button className="inline-play-btn"
+                  style={{background: accentColor, color: T.bg0}}
+                  onClick={e => { e.stopPropagation(); onTogglePlay() }}>
+                  {isPlaying ? '⏸' : '▶'}
+                </button>
+                <InlineSeekbar
+                  peaks={peaks.length > 0 ? peaks : null}
+                  progress={progress}
+                  duration={duration}
+                  onSeek={onSeek}
+                  accentColor={accentColor}
+                  mutedColor={mutedColor}
+                  cyanColor={cyanColor}
+                />
+              </div>
+              <div className="inline-times">
+                <span className="time-label">{fmtTime(progress)}</span>
+                <span className="time-label">{fmtTime(duration)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Tags */}
+          {track.tags?.length > 0 && (
+            <div style={{display:'flex', gap:4, overflow:'hidden', flexWrap:'nowrap'}}>
+              {track.tags.map(tag => <span key={tag} className="tag-inline" style={{flexShrink:0}}>#{tag}</span>)}
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div style={{display:'flex', alignItems:'center', gap:8, paddingTop: isActive ? 2 : 0}} onClick={e => e.stopPropagation()}>
+          <div className="track-duration">
+              {[fmtDuration(track.duration), track.bpm ? `${track.bpm} BPM` : null].filter(Boolean).join(' · ')}
+            </div>
+          {versions.length > 0 && (
+            <button className={`btn-icon ${isExpanded ? 'edit-active' : ''}`} title="Show versions"
+              onClick={() => onToggleExpand(isExpanded ? null : track.id)}>
+              {isExpanded ? '▴' : '▾'}
+            </button>
+          )}
+          <button className="btn-icon" title="Download" onClick={() => onDownload(track)}>↓</button>
+        </div>
+      </div>
+
+      {/* Version rows */}
+      {isExpanded && versions.map((v, vi) => {
+        const isVersionActive = activeVersionIdx === vi
+        const vTrack = {...track, file_path:v.file_path, file_name:v.file_name, file_size:v.file_size, duration:v.duration, versionIdx:vi, versionLabel:v.label}
+        return (
+          <div key={vi}
+            className={`track-row ${isVersionActive ? 'playing' : ''}`}
+            style={{paddingLeft:56, borderTop:`1px solid ${T.border}`, gridTemplateColumns:'1fr auto', alignItems: isVersionActive ? 'start' : 'center'}}
+            onClick={() => onPlay(vTrack)}>
+            <div style={{display:'flex', flexDirection:'column', gap:4, minWidth:0}}>
+              <div className={`track-name ${isVersionActive ? 'playing' : ''}`} style={{fontSize:13}}>↳ {v.label}</div>
+              {isVersionActive && (
+                <div onClick={e => e.stopPropagation()}>
+                  <div className="inline-player">
+                    <button className="inline-play-btn"
+                      style={{background: accentColor, color: T.bg0}}
+                      onClick={e => { e.stopPropagation(); onTogglePlay() }}>
+                      {isPlaying ? '⏸' : '▶'}
+                    </button>
+                    <InlineSeekbar peaks={v.waveform_peaks || []} progress={progress} duration={duration} onSeek={onSeek} accentColor={accentColor} mutedColor={mutedColor} cyanColor={cyanColor} />
+                  </div>
+                  <div className="inline-times">
+                    <span className="time-label">{fmtTime(progress)}</span>
+                    <span className="time-label">{fmtTime(duration)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{display:'flex', alignItems:'center', gap:8}} onClick={e => e.stopPropagation()}>
+              <div className="track-duration">{fmtDuration(v.duration)}</div>
+              <button className="btn-icon" title="Download" onClick={() => onDownload(vTrack)}>↓</button>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+})
+
 export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) {
   const [tracks, setTracks]         = useState([])
   const [loading, setLoading]       = useState(true)
@@ -92,6 +222,7 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
   const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme, loadingTrackId, preloadUrls } = playerProps
   const accentColor = theme?.amber || T.amber
   const mutedColor  = theme?.border || T.border
+  const cyanColor   = theme?.cyan || T.cyan
 
   useEffect(() => { fetchTracks() }, [])
 
@@ -106,13 +237,13 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
     }
   }
 
-  const download = async (track) => {
+  const download = useCallback(async (track) => {
     const { data, error } = await supabase.storage.from('audio-tracks').createSignedUrl(track.file_path, 60)
     if (error || !data?.signedUrl) { onToast('Download failed', 'error'); return }
     const a = document.createElement('a')
     a.href = data.signedUrl; a.download = track.file_name || track.title; a.click()
     onToast('Download started')
-  }
+  }, [onToast])
 
   const isTrackActive = (track, versionIdx) =>
     currentTrack?.id === track.id && currentTrack?.versionIdx === versionIdx
@@ -131,130 +262,6 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
       <span className="spinner"/>Loading your files…
     </div>
   )
-
-  const TrackRow = ({ track, i }) => {
-    const versions    = track.versions || []
-    const isExpanded  = expandedId === track.id
-    const isActive    = isTrackActive(track, undefined)
-    const peaks       = track.waveform_peaks || []
-
-    return (
-      <div>
-        <div
-          className={`track-row ${isActive ? 'playing' : ''}`}
-          style={{ gridTemplateColumns:'40px 1fr auto', alignItems: isActive ? 'start' : 'center' }}
-          onClick={() => onPlay(track)}
-        >
-          {/* Number / playing indicator */}
-          <div className={`track-num ${isActive ? 'playing-indicator' : ''}`} style={{paddingTop: isActive ? 4 : 0}}>
-            {loadingTrackId === track.id
-              ? <span className="spinner" style={{margin:0, width:12, height:12, borderWidth:2}} />
-              : isActive ? '♪' : i + 1
-            }
-          </div>
-
-          {/* Main content column */}
-          <div style={{display:'flex', flexDirection:'column', gap:4, minWidth:0}}>
-            <div className={`track-name ${isActive ? 'playing' : ''}`}>
-              {track.title}
-              {versions.length > 0 && (
-                <span style={{fontSize:10, fontFamily:'Space Mono,monospace', color:accentColor, marginLeft:8, opacity:0.8}}>
-                  +{versions.length} version{versions.length!==1?'s':''}
-                </span>
-              )}
-            </div>
-
-            {/* Inactive: static waveform bg */}
-            {!isActive && peaks.length > 0 && (
-              <WaveformBg peaks={peaks} baseColor={mutedColor} />
-            )}
-
-            {/* Active: inline player */}
-            {isActive && (
-              <div onClick={e => e.stopPropagation()}>
-                <div className="inline-player">
-                  <button className="inline-play-btn"
-                    style={{background: accentColor, color: T.bg0}}
-                    onClick={e => { e.stopPropagation(); onTogglePlay() }}>
-                    {isPlaying ? '⏸' : '▶'}
-                  </button>
-                  <InlineSeekbar
-                    peaks={peaks.length > 0 ? peaks : null}
-                    progress={progress}
-                    duration={duration}
-                    onSeek={onSeek}
-                    accentColor={accentColor}
-                    mutedColor={mutedColor}
-                  />
-                </div>
-                <div className="inline-times">
-                  <span className="time-label">{fmtTime(progress)}</span>
-                  <span className="time-label">{fmtTime(duration)}</span>
-                </div>
-              </div>
-            )}
-
-            {/* Tags */}
-            {track.tags?.length > 0 && (
-              <div style={{display:'flex', gap:4, overflow:'hidden', flexWrap:'nowrap'}}>
-                {track.tags.map(tag => <span key={tag} className="tag-inline" style={{flexShrink:0}}>#{tag}</span>)}
-              </div>
-            )}
-          </div>
-
-          {/* Actions */}
-          <div style={{display:'flex', alignItems:'center', gap:8, paddingTop: isActive ? 2 : 0}} onClick={e => e.stopPropagation()}>
-            <div className="track-duration">
-                {[fmtDuration(track.duration), track.bpm ? `${track.bpm} BPM` : null].filter(Boolean).join(' · ')}
-              </div>
-            {versions.length > 0 && (
-              <button className={`btn-icon ${isExpanded ? 'edit-active' : ''}`} title="Show versions"
-                onClick={() => setExpandedId(isExpanded ? null : track.id)}>
-                {isExpanded ? '▴' : '▾'}
-              </button>
-            )}
-            <button className="btn-icon" title="Download" onClick={() => download(track)}>↓</button>
-          </div>
-        </div>
-
-        {/* Version rows */}
-        {isExpanded && versions.map((v, vi) => {
-          const isVersionActive = isTrackActive(track, vi)
-          const vTrack = {...track, file_path:v.file_path, file_name:v.file_name, file_size:v.file_size, duration:v.duration, versionIdx:vi, versionLabel:v.label}
-          return (
-            <div key={vi}
-              className={`track-row ${isVersionActive ? 'playing' : ''}`}
-              style={{paddingLeft:56, borderTop:`1px solid ${T.border}`, gridTemplateColumns:'1fr auto', alignItems: isVersionActive ? 'start' : 'center'}}
-              onClick={() => onPlay(vTrack)}>
-              <div style={{display:'flex', flexDirection:'column', gap:4, minWidth:0}}>
-                <div className={`track-name ${isVersionActive ? 'playing' : ''}`} style={{fontSize:13}}>↳ {v.label}</div>
-                {isVersionActive && (
-                  <div onClick={e => e.stopPropagation()}>
-                    <div className="inline-player">
-                      <button className="inline-play-btn"
-                        style={{background: accentColor, color: T.bg0}}
-                        onClick={e => { e.stopPropagation(); onTogglePlay() }}>
-                        {isPlaying ? '⏸' : '▶'}
-                      </button>
-                      <InlineSeekbar peaks={v.waveform_peaks || []} progress={progress} duration={duration} onSeek={onSeek} accentColor={accentColor} mutedColor={mutedColor} />
-                    </div>
-                    <div className="inline-times">
-                      <span className="time-label">{fmtTime(progress)}</span>
-                      <span className="time-label">{fmtTime(duration)}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div style={{display:'flex', alignItems:'center', gap:8}} onClick={e => e.stopPropagation()}>
-                <div className="track-duration">{fmtDuration(v.duration)}</div>
-                <button className="btn-icon" title="Download" onClick={() => download(vTrack)}>↓</button>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
 
   return (
     <div className="main">
@@ -311,7 +318,36 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
           <div className="track-list" style={{paddingBottom:32}}>
             {filtered.length === 0
               ? <div className="empty-state" style={{padding:40}}><div style={{fontSize:28, marginBottom:8}}>🔍</div>No tracks match your search</div>
-              : filtered.map((track, i) => <TrackRow key={track.id} track={track} i={i} />)
+              : filtered.map((track, i) => {
+                  const isActive = isTrackActive(track, undefined)
+                  const activeVersionIdx =
+                    currentTrack?.id === track.id && currentTrack?.versionIdx !== undefined
+                      ? currentTrack.versionIdx
+                      : null
+                  const rowActive = isActive || activeVersionIdx !== null
+                  return (
+                    <TrackRowBase
+                      key={track.id}
+                      track={track}
+                      i={i}
+                      isActive={isActive}
+                      activeVersionIdx={activeVersionIdx}
+                      isExpanded={expandedId === track.id}
+                      isPlaying={isPlaying}
+                      loadingTrackId={loadingTrackId}
+                      accentColor={accentColor}
+                      mutedColor={mutedColor}
+                      cyanColor={cyanColor}
+                      onPlay={onPlay}
+                      onTogglePlay={onTogglePlay}
+                      onSeek={onSeek}
+                      onToggleExpand={setExpandedId}
+                      onDownload={download}
+                      progress={rowActive ? progress : 0}
+                      duration={rowActive ? duration : 0}
+                    />
+                  )
+                })
             }
           </div>
         </>
