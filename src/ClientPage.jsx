@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, memo, useCallback } from 'react'
 import { supabase } from './supabase'
-import { DEFAULT_THEME as T, fmtTime, InlineSeekbar } from './App'
+import { DEFAULT_THEME as T, fmtTime, InlineSeekbar, logTrackEvent } from './App'
 
 function fmtDuration(sec) {
   if (!sec || !isFinite(sec)) return ''
@@ -227,7 +227,11 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
   useEffect(() => { fetchTracks() }, [])
 
   const fetchTracks = async () => {
-    const { data } = await supabase.from('tracks').select('*').order('sort_order', { ascending: true })
+    // Explicit column list — deliberately EXCLUDES admin_notes and
+    // project_file_ref so private admin data never reaches the client browser.
+    // (RLS is open, so "select *" would otherwise expose them in network traffic.)
+    const TRACK_COLS = 'id, title, tags, bpm, duration, file_path, file_name, file_size, featured, featured_image, assigned_to, versions, waveform_peaks, sort_order, created_at'
+    const { data } = await supabase.from('tracks').select(TRACK_COLS).order('sort_order', { ascending: true })
     const mine = (data || []).filter(t => !t.assigned_to?.length || t.assigned_to.includes(clientRow.id))
     setTracks(mine)
     setLoading(false)
@@ -243,7 +247,13 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
     const a = document.createElement('a')
     a.href = data.signedUrl; a.download = track.file_name || track.title; a.click()
     onToast('Download started')
-  }, [onToast])
+    logTrackEvent({
+      trackId: track.id,
+      clientId: clientRow?.id,
+      eventType: 'download',
+      versionIdx: track.versionIdx ?? null,
+    })
+  }, [onToast, clientRow])
 
   const isTrackActive = (track, versionIdx) =>
     currentTrack?.id === track.id && currentTrack?.versionIdx === versionIdx

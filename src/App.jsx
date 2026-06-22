@@ -20,6 +20,24 @@ export const DEFAULT_THEME = {
   textPrimary: '#f0efed', textSecondary: '#999999', textMuted: '#6a6a6a',
 }
 
+// ── Analytics ────────────────────────────────────────────────────
+// Fire-and-forget event logger. Never throws into the UI — analytics must
+// never break playback or downloads. One row per play (once a track passes the
+// 4s threshold) and per download.
+export async function logTrackEvent({ trackId, clientId, eventType, versionIdx = null }) {
+  if (!trackId || !eventType) return
+  try {
+    await supabase.from('track_events').insert({
+      track_id: trackId,
+      client_id: clientId || null,
+      event_type: eventType,
+      version_idx: versionIdx,
+    })
+  } catch {
+    // swallow — a failed analytics write should be invisible to the user
+  }
+}
+
 export function buildCss(t) {
   const coral = t.amber, cyan = t.cyan || '#3fd9c4'
   // The signature gradient — coral core bleeding to cyan, echoing the brand render.
@@ -303,10 +321,13 @@ export default function App() {
   const currentTrackRef = useRef(null)
   const isPlayingRef    = useRef(false)
   const loadingRef      = useRef(null)
+  const playLoggedRef   = useRef(false)   // has the current track passed 4s & been logged?
+  const clientRowRef    = useRef(null)    // current client, for the audio event closures
 
   // Keep refs in sync with state
   useEffect(() => { currentTrackRef.current = currentTrack }, [currentTrack])
   useEffect(() => { isPlayingRef.current = isPlaying }, [isPlaying])
+  useEffect(() => { clientRowRef.current = clientRow }, [clientRow])
 
   const handleSignOut = () => {
     setClientRow(null)
@@ -348,6 +369,7 @@ export default function App() {
     setIsPlaying(false)
     setProgress(0)
     setDuration(0)
+    playLoggedRef.current = false   // new track — allow one play event once it passes 4s
 
     // If URL already cached — start playing synchronously, zero delay
     const cachedUrl = urlCache.current[track.file_path]
@@ -422,7 +444,22 @@ export default function App() {
       <style>{css}</style>
       <audio
         ref={audioRef}
-        onTimeUpdate={e => setProgress(e.target.currentTime)}
+        onTimeUpdate={e => {
+          const t = e.target.currentTime
+          setProgress(t)
+          // Log a "play" once, after 4s of playback. Pure ref check + fire-and-
+          // forget insert — no state update here, so it can't cause re-renders.
+          if (!playLoggedRef.current && t >= 4) {
+            playLoggedRef.current = true
+            const tr = currentTrackRef.current
+            if (tr) logTrackEvent({
+              trackId: tr.id,
+              clientId: clientRowRef.current?.id,
+              eventType: 'play',
+              versionIdx: tr.versionIdx ?? null,
+            })
+          }
+        }}
         onDurationChange={e => setDuration(e.target.duration)}
         onEnded={() => setIsPlaying(false)}
         onPlay={() => setIsPlaying(true)}
