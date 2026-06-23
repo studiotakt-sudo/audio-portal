@@ -212,6 +212,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
   const [selectedDrafts, setSelectedDrafts] = useState([])  // track ids
   const [bulkComposer, setBulkComposer]     = useState('')
   const [bulkTag, setBulkTag]               = useState('')
+  const [autoSelectDrafts, setAutoSelectDrafts] = useState(false)  // select-all after a batch
   const [versionFile, setVersionFile]   = useState(null)
   const [versionLabel, setVersionLabel] = useState('')
   const [versionUploading, setVersionUploading] = useState(false)
@@ -225,6 +226,29 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
   const dragOverItem = useRef(null)
 
   useEffect(() => { setLocalTracks(tracks) }, [tracks])
+
+  // After a batch upload, auto-select all drafts so the composer dropdown is
+  // immediately available and the whole batch is ready to tag + publish.
+  useEffect(() => {
+    if (!autoSelectDrafts) return
+    const drafts = localTracks.filter(t => t.is_published === false).map(t => t.id)
+    if (drafts.length > 0) {
+      setSelectedDrafts(drafts)
+      setAutoSelectDrafts(false)
+    }
+  }, [localTracks, autoSelectDrafts])
+
+  // On first load, if drafts already exist from a prior session, pre-select them
+  // too so the composer/publish bar is ready without an extra click.
+  const didInitDraftSelect = useRef(false)
+  useEffect(() => {
+    if (didInitDraftSelect.current) return
+    const drafts = localTracks.filter(t => t.is_published === false)
+    if (drafts.length > 0) {
+      setSelectedDrafts(drafts.map(t => t.id))
+      didInitDraftSelect.current = true
+    }
+  }, [localTracks])
 
   const clientList = clients.filter(c => c.role === 'client')
 
@@ -381,7 +405,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
 
     await onRefresh()
     setBatchRunning(false)
-    const done = files.length
+    setAutoSelectDrafts(true)   // trigger select-all once the new drafts land
     onToast(`Batch complete — review drafts below`)
   }
 
