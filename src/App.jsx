@@ -323,6 +323,7 @@ export default function App() {
   const loadingRef      = useRef(null)
   const playLoggedRef   = useRef(false)   // has the current track passed 4s & been logged?
   const clientRowRef    = useRef(null)    // current client, for the audio event closures
+  const nextTrackResolverRef = useRef(null) // ClientPage sets this: (currentTrackId) => nextVisibleTrack | null
 
   // Keep refs in sync with state
   useEffect(() => { currentTrackRef.current = currentTrack }, [currentTrack])
@@ -462,7 +463,18 @@ export default function App() {
           }
         }}
         onDurationChange={e => setDuration(e.target.duration)}
-        onEnded={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false)
+          // Auto-advance: ask the client list for the next VISIBLE track (in the
+          // order currently displayed, respecting filters). Plays it, or stops
+          // if the finished track was the last visible one.
+          const cur = currentTrackRef.current
+          const resolver = nextTrackResolverRef.current
+          if (cur && resolver) {
+            const next = resolver(cur.id)
+            if (next) playTrack(next)
+          }
+        }}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
       />
@@ -484,7 +496,7 @@ export default function App() {
           ? <LoginPage onLogin={handleLogin} onToast={showToast} />
           : clientRow.role === 'admin'
             ? <AdminPage clientRow={clientRow} onPlay={playTrack} playerProps={playerProps} onToast={showToast} theme={theme} onThemeChange={setTheme} />
-            : <ClientPage clientRow={clientRow} onPlay={playTrack} playerProps={playerProps} onToast={showToast} />
+            : <ClientPage clientRow={clientRow} onPlay={playTrack} playerProps={playerProps} onToast={showToast} registerNextResolver={fn => { nextTrackResolverRef.current = fn }} />
         }
       </div>
 

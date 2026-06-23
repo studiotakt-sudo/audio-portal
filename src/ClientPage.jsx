@@ -212,7 +212,7 @@ const TrackRowBase = memo(function TrackRowBase({
   )
 })
 
-export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) {
+export default function ClientPage({ clientRow, onPlay, playerProps, onToast, registerNextResolver }) {
   const [tracks, setTracks]         = useState([])
   const [composerMap, setComposerMap] = useState({})  // id -> name
   const [loading, setLoading]       = useState(true)
@@ -288,6 +288,20 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
   })
   const featuredTracks = tracks.filter(t => t.featured)
   const showFeatured = featuredTracks.length > 0 && !search && !activeTag
+
+  // Register a resolver so App's audio onEnded can auto-advance to the next
+  // VISIBLE track, in the order currently displayed (respects search/tag
+  // filters). Returns null when the finished track was the last visible one,
+  // so playback stops rather than looping.
+  useEffect(() => {
+    if (!registerNextResolver) return
+    registerNextResolver((currentTrackId) => {
+      const idx = filtered.findIndex(t => t.id === currentTrackId)
+      if (idx === -1) return null              // finished track no longer visible → stop
+      return filtered[idx + 1] || null         // next visible, or null if it was the last
+    })
+    return () => registerNextResolver(null)
+  }, [filtered, registerNextResolver])
 
   if (loading) return (
     <div className="main" style={{ display:'flex', alignItems:'center', gap:10, color: T.textMuted, fontFamily:'Space Mono,monospace', fontSize:13 }}>
