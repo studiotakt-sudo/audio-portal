@@ -237,7 +237,7 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
   const fetchTracks = async () => {
     // Explicit column list — deliberately EXCLUDES admin_notes and
     // project_file_ref so private admin data never reaches the client browser.
-    const TRACK_COLS = 'id, title, file_name, file_path, file_size, mime_type, tags, assigned_to, uploaded_at, versions, duration, sort_order, featured, waveform_peaks, featured_image, bpm, composer_id'
+    const TRACK_COLS = 'id, title, file_name, file_path, file_size, mime_type, tags, assigned_to, uploaded_at, versions, duration, sort_order, featured, waveform_peaks, featured_image, bpm, composer_id, is_published'
     let { data, error } = await supabase.from('tracks').select(TRACK_COLS).order('sort_order', { ascending: true })
 
     // If the explicit column list ever fails (e.g. a schema mismatch), fall back
@@ -250,7 +250,10 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
       if (fb.error) { onToast('Could not load tracks', 'error'); console.error(fb.error.message) }
     }
 
-    const mine = (data || []).filter(t => !t.assigned_to?.length || t.assigned_to.includes(clientRow.id))
+    const mine = (data || []).filter(t =>
+      t.is_published !== false &&   // never show drafts to clients
+      (!t.assigned_to?.length || t.assigned_to.includes(clientRow.id))
+    )
     setTracks(mine)
     setLoading(false)
     // Preload signed URLs in background after tracks are shown
