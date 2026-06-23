@@ -132,6 +132,7 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
   const [tab, setTab]         = useState('tracks')
   const [tracks, setTracks]   = useState([])
   const [clients, setClients] = useState([])
+  const [composers, setComposers] = useState([])
   const [loadingData, setLoadingData] = useState(true)
   const { currentTrack } = playerProps || {}
 
@@ -139,12 +140,15 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
 
   const fetchAll = async () => {
     setLoadingData(true)
-    const [{ data: tracksData }, { data: clientsData }] = await Promise.all([
+    const [{ data: tracksData }, { data: clientsData }, composersRes] = await Promise.all([
       supabase.from('tracks').select('*').order('sort_order', { ascending: true }),
       supabase.from('clients').select('*').order('created_at'),
+      // composers may not exist yet if the Phase 5 migration hasn't run — tolerate it
+      supabase.from('composers').select('*').order('sort_order', { ascending: true }).then(r => r, () => ({ data: [] })),
     ])
     setTracks(tracksData || [])
     setClients(clientsData || [])
+    setComposers(composersRes?.data || [])
     setLoadingData(false)
   }
 
@@ -167,12 +171,14 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
       <div className="tabs">
         <button className={`tab ${tab === 'tracks' ? 'active' : ''}`} onClick={() => setTab('tracks')}>🎵 Tracks</button>
         <button className={`tab ${tab === 'clients' ? 'active' : ''}`} onClick={() => setTab('clients')}>👤 Clients</button>
+        <button className={`tab ${tab === 'composers' ? 'active' : ''}`} onClick={() => setTab('composers')}>🎼 Composers</button>
         <button className={`tab ${tab === 'insights' ? 'active' : ''}`} onClick={() => setTab('insights')}>📊 Insights</button>
         <button className={`tab ${tab === 'admins' ? 'active' : ''}`} onClick={() => setTab('admins')}>🔑 Admins</button>
         <button className={`tab ${tab === 'theme' ? 'active' : ''}`} onClick={() => setTab('theme')}>🎨 Theme</button>
       </div>
-      {tab === 'tracks' && <TrackManager tracks={tracks} clients={clients} onRefresh={fetchAll} onPlay={onPlay} playerProps={playerProps} onToast={onToast} />}
+      {tab === 'tracks' && <TrackManager tracks={tracks} clients={clients} composers={composers} onRefresh={fetchAll} onPlay={onPlay} playerProps={playerProps} onToast={onToast} />}
       {tab === 'clients' && <ClientManager clients={clients} tracks={tracks} onRefresh={fetchAll} onToast={onToast} />}
+      {tab === 'composers' && <ComposerManager composers={composers} tracks={tracks} onRefresh={fetchAll} onToast={onToast} />}
       {tab === 'insights' && <InsightsManager tracks={tracks} clients={clients} onToast={onToast} />}
       {tab === 'admins' && <AdminManager clients={clients} currentAdmin={clientRow} onRefresh={fetchAll} onToast={onToast} />}
       {tab === 'theme' && <ThemeManager theme={theme} onThemeChange={onThemeChange} onToast={onToast} />}
@@ -181,7 +187,7 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
 }
 
 // ─── Track Manager ─────────────────────────────────────────────────
-function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast }) {
+function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerProps, onToast }) {
   const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme, loadingTrackId } = playerProps || {}
   const accentColor = theme?.amber || T.amber
   const mutedColor  = theme?.border || T.border
@@ -369,6 +375,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       versions: [...(track.versions || [])],
       featured_image: track.featured_image || null,
       bpm: track.bpm || '',
+      composer_id: track.composer_id || '',
       admin_notes: track.admin_notes || '',
       project_file_ref: track.project_file_ref || '',
     })
@@ -421,6 +428,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       versions: editState.versions,
       featured_image: featuredImagePath,
       bpm: editState.bpm ? parseInt(editState.bpm) : null,
+      composer_id: editState.composer_id || null,
       admin_notes: editState.admin_notes,
       project_file_ref: editState.project_file_ref,
     }).eq('id', trackId)
@@ -692,6 +700,15 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                               value={editState.bpm}
                               onChange={e => setEditState(s => ({...s, bpm:e.target.value}))} />
                           </div>
+                          <div>
+                            <div className="track-edit-label">Composer</div>
+                            <select className="input" style={{minWidth:160}}
+                              value={editState.composer_id}
+                              onChange={e => setEditState(s => ({...s, composer_id:e.target.value}))}>
+                              <option value="">— Uncredited —</option>
+                              {composers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                          </div>
                         </div>
                         <div style={{gridColumn:'1 / -1'}}>
                           <div className="track-edit-label">Tags</div>
@@ -824,6 +841,115 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       {localTracks.length === 0 && !pendingFile && (
         <div className="empty-state"><div className="empty-icon">🎧</div>Upload your first track to get started</div>
       )}
+    </>
+  )
+}
+
+// ─── Composer Manager ──────────────────────────────────────────────
+// Composers are attribution entities (NOT logins). Each track references one
+// composer by id. Deleting a composer un-credits their tracks (sets null),
+// it does not delete the tracks.
+function ComposerManager({ composers, tracks, onRefresh, onToast }) {
+  const [form, setForm]       = useState({ name:'', bio:'' })
+  const [error, setError]     = useState('')
+  const [loading, setLoading] = useState(false)
+  const [editId, setEditId]   = useState(null)
+  const [editDraft, setEditDraft] = useState({ name:'', bio:'' })
+
+  const trackCount = (composerId) => tracks.filter(t => t.composer_id === composerId).length
+
+  const addComposer = async () => {
+    setError('')
+    if (!form.name.trim()) { setError('Name is required'); return }
+    if (composers.some(c => c.name.toLowerCase() === form.name.trim().toLowerCase())) {
+      setError('A composer with that name already exists'); return
+    }
+    setLoading(true)
+    const nextOrder = composers.length ? Math.max(...composers.map(c => c.sort_order || 0)) + 1 : 1
+    const { error: dbError } = await supabase.from('composers').insert({
+      name: form.name.trim(), bio: form.bio.trim(), sort_order: nextOrder,
+    })
+    if (dbError) { setError('Could not add composer: ' + dbError.message); setLoading(false); return }
+    await onRefresh()
+    setForm({ name:'', bio:'' })
+    setLoading(false)
+    onToast('Composer added')
+  }
+
+  const saveEdit = async (id) => {
+    if (!editDraft.name.trim()) { onToast('Name is required', 'error'); return }
+    const { error } = await supabase.from('composers').update({
+      name: editDraft.name.trim(), bio: editDraft.bio.trim(),
+    }).eq('id', id)
+    if (error) { onToast('Could not save', 'error'); return }
+    await onRefresh(); setEditId(null); onToast('Composer updated')
+  }
+
+  const deleteComposer = async (composer) => {
+    const n = trackCount(composer.id)
+    const msg = n > 0
+      ? `Remove ${composer.name}? ${n} track${n!==1?'s':''} will become uncredited (the tracks are kept).`
+      : `Remove ${composer.name}?`
+    if (!confirm(msg)) return
+    // Tracks reference composer_id with ON DELETE SET NULL, so they survive.
+    await supabase.from('composers').delete().eq('id', composer.id)
+    await onRefresh(); onToast('Composer removed')
+  }
+
+  return (
+    <>
+      <div className="upload-form">
+        <div className="upload-form-title" style={{marginBottom:16}}>Add composer</div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 2fr auto', gap:12, alignItems:'end'}}>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Name</label>
+            <input className="input" placeholder="e.g. Barry" value={form.name} onChange={e => setForm(f => ({...f, name:e.target.value}))} />
+          </div>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Bio <span style={{color:T.textMuted, fontWeight:400}}>(optional)</span></label>
+            <input className="input" placeholder="Short description" value={form.bio} onChange={e => setForm(f => ({...f, bio:e.target.value}))} />
+          </div>
+          <button className="btn btn-primary" onClick={addComposer} disabled={loading}>
+            {loading ? <><span className="spinner"/>Adding…</> : 'Add composer'}
+          </button>
+        </div>
+        {error && <div className="error-msg" style={{marginTop:8}}>{error}</div>}
+      </div>
+      <div className="section-header">{composers.length} composer{composers.length!==1?'s':''}</div>
+      {composers.length === 0
+        ? <div className="empty-state"><div className="empty-icon">🎼</div>No composers yet</div>
+        : composers.map(c => (
+          <div key={c.id} className="client-card" style={{flexDirection:'column', alignItems:'stretch', gap:0}}>
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', gap:12}}>
+              <div style={{minWidth:0}}>
+                <div className="client-name">{c.name}</div>
+                <div className="client-meta">
+                  {trackCount(c.id)} track{trackCount(c.id)!==1?'s':''}{c.bio ? ` · ${c.bio}` : ''}
+                </div>
+              </div>
+              <div style={{display:'flex', gap:8}}>
+                {editId === c.id
+                  ? <button className="btn btn-ghost btn-sm" onClick={() => setEditId(null)}>Close</button>
+                  : <button className="btn btn-ghost btn-sm" onClick={() => { setEditId(c.id); setEditDraft({ name:c.name, bio:c.bio || '' }) }}>Edit</button>}
+                <button className="btn btn-danger btn-sm" onClick={() => deleteComposer(c)}>Remove</button>
+              </div>
+            </div>
+            {editId === c.id && (
+              <div style={{marginTop:12, borderTop:`1px solid ${T.border}`, paddingTop:12, display:'grid', gridTemplateColumns:'1fr 2fr auto', gap:12, alignItems:'end'}}>
+                <div className="field" style={{marginBottom:0}}>
+                  <label className="label">Name</label>
+                  <input className="input" value={editDraft.name} onChange={e => setEditDraft(d => ({...d, name:e.target.value}))} />
+                </div>
+                <div className="field" style={{marginBottom:0}}>
+                  <label className="label">Bio</label>
+                  <input className="input" value={editDraft.bio} onChange={e => setEditDraft(d => ({...d, bio:e.target.value}))} />
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={() => saveEdit(c.id)}>Save</button>
+              </div>
+            )}
+          </div>
+        ))
+      }
     </>
   )
 }

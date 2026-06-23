@@ -87,7 +87,7 @@ function FeaturedCard({ track, isPlaying, onPlay }) {
 // receive progress=0/duration=0 (constant), so memo holds them stable on ticks.
 const TrackRowBase = memo(function TrackRowBase({
   track, i, isActive, activeVersionIdx, isExpanded, isPlaying, loadingTrackId,
-  accentColor, mutedColor, cyanColor, progress, duration,
+  accentColor, mutedColor, cyanColor, progress, duration, composerName,
   onPlay, onTogglePlay, onSeek, onToggleExpand, onDownload,
 }) {
   const versions = track.versions || []
@@ -161,7 +161,7 @@ const TrackRowBase = memo(function TrackRowBase({
         {/* Actions */}
         <div style={{display:'flex', alignItems:'center', gap:8, paddingTop: isActive ? 2 : 0}} onClick={e => e.stopPropagation()}>
           <div className="track-duration">
-              {[fmtDuration(track.duration), track.bpm ? `${track.bpm} BPM` : null].filter(Boolean).join(' · ')}
+              {[composerName, fmtDuration(track.duration), track.bpm ? `${track.bpm} BPM` : null].filter(Boolean).join(' · ')}
             </div>
           {versions.length > 0 && (
             <button className={`btn-icon ${isExpanded ? 'edit-active' : ''}`} title="Show versions"
@@ -214,6 +214,7 @@ const TrackRowBase = memo(function TrackRowBase({
 
 export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) {
   const [tracks, setTracks]         = useState([])
+  const [composerMap, setComposerMap] = useState({})  // id -> name
   const [loading, setLoading]       = useState(true)
   const [search, setSearch]         = useState('')
   const [activeTag, setActiveTag]   = useState(null)
@@ -224,12 +225,19 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
   const mutedColor  = theme?.border || T.border
   const cyanColor   = theme?.cyan || T.cyan
 
-  useEffect(() => { fetchTracks() }, [])
+  useEffect(() => { fetchTracks(); fetchComposers() }, [])
+
+  const fetchComposers = async () => {
+    const { data } = await supabase.from('composers').select('id, name')
+    const map = {}
+    ;(data || []).forEach(c => { map[c.id] = c.name })
+    setComposerMap(map)
+  }
 
   const fetchTracks = async () => {
     // Explicit column list — deliberately EXCLUDES admin_notes and
     // project_file_ref so private admin data never reaches the client browser.
-    const TRACK_COLS = 'id, title, file_name, file_path, file_size, mime_type, tags, assigned_to, uploaded_at, versions, duration, sort_order, featured, waveform_peaks, featured_image, bpm'
+    const TRACK_COLS = 'id, title, file_name, file_path, file_size, mime_type, tags, assigned_to, uploaded_at, versions, duration, sort_order, featured, waveform_peaks, featured_image, bpm, composer_id'
     let { data, error } = await supabase.from('tracks').select(TRACK_COLS).order('sort_order', { ascending: true })
 
     // If the explicit column list ever fails (e.g. a schema mismatch), fall back
@@ -359,6 +367,7 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast }) 
                       accentColor={accentColor}
                       mutedColor={mutedColor}
                       cyanColor={cyanColor}
+                      composerName={track.composer_id ? composerMap[track.composer_id] : ''}
                       onPlay={onPlay}
                       onTogglePlay={onTogglePlay}
                       onSeek={onSeek}
