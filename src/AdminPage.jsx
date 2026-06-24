@@ -132,6 +132,7 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
   const [tab, setTab]         = useState('tracks')
   const [tracks, setTracks]   = useState([])
   const [clients, setClients] = useState([])
+  const [composers, setComposers] = useState([])
   const [loadingData, setLoadingData] = useState(true)
   const { currentTrack } = playerProps || {}
 
@@ -139,12 +140,15 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
 
   const fetchAll = async () => {
     setLoadingData(true)
-    const [{ data: tracksData }, { data: clientsData }] = await Promise.all([
+    const [{ data: tracksData }, { data: clientsData }, composersRes] = await Promise.all([
       supabase.from('tracks').select('*').order('sort_order', { ascending: true }),
       supabase.from('clients').select('*').order('created_at'),
+      // composers may not exist yet if the Phase 5 migration hasn't run — tolerate it
+      supabase.from('composers').select('*').order('sort_order', { ascending: true }).then(r => r, () => ({ data: [] })),
     ])
     setTracks(tracksData || [])
     setClients(clientsData || [])
+    setComposers(composersRes?.data || [])
     setLoadingData(false)
   }
 
@@ -167,12 +171,14 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
       <div className="tabs">
         <button className={`tab ${tab === 'tracks' ? 'active' : ''}`} onClick={() => setTab('tracks')}>🎵 Tracks</button>
         <button className={`tab ${tab === 'clients' ? 'active' : ''}`} onClick={() => setTab('clients')}>👤 Clients</button>
+        <button className={`tab ${tab === 'composers' ? 'active' : ''}`} onClick={() => setTab('composers')}>🎼 Composers</button>
         <button className={`tab ${tab === 'insights' ? 'active' : ''}`} onClick={() => setTab('insights')}>📊 Insights</button>
         <button className={`tab ${tab === 'admins' ? 'active' : ''}`} onClick={() => setTab('admins')}>🔑 Admins</button>
         <button className={`tab ${tab === 'theme' ? 'active' : ''}`} onClick={() => setTab('theme')}>🎨 Theme</button>
       </div>
-      {tab === 'tracks' && <TrackManager tracks={tracks} clients={clients} onRefresh={fetchAll} onPlay={onPlay} playerProps={playerProps} onToast={onToast} />}
+      {tab === 'tracks' && <TrackManager tracks={tracks} clients={clients} composers={composers} onRefresh={fetchAll} onPlay={onPlay} playerProps={playerProps} onToast={onToast} />}
       {tab === 'clients' && <ClientManager clients={clients} tracks={tracks} onRefresh={fetchAll} onToast={onToast} />}
+      {tab === 'composers' && <ComposerManager composers={composers} tracks={tracks} onRefresh={fetchAll} onToast={onToast} />}
       {tab === 'insights' && <InsightsManager tracks={tracks} clients={clients} onToast={onToast} />}
       {tab === 'admins' && <AdminManager clients={clients} currentAdmin={clientRow} onRefresh={fetchAll} onToast={onToast} />}
       {tab === 'theme' && <ThemeManager theme={theme} onThemeChange={onThemeChange} onToast={onToast} />}
@@ -181,7 +187,7 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
 }
 
 // ─── Track Manager ─────────────────────────────────────────────────
-function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast }) {
+function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerProps, onToast }) {
   const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme, loadingTrackId } = playerProps || {}
   const accentColor = theme?.amber || T.amber
   const mutedColor  = theme?.border || T.border
@@ -189,7 +195,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
   const [dragOver, setDragOver]       = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
   const [extracting, setExtracting]   = useState(false)
-  const [form, setForm]               = useState({ title:'', tags:[], tagInput:'', assignedTo:[], bpm:'' })
+  const [form, setForm]               = useState({ title:'', tags:[], tagInput:'', assignedTo:[], bpm:'', composer_id:'' })
   const [uploading, setUploading]     = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [search, setSearch]           = useState('')
@@ -198,6 +204,15 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
   const [expandedId, setExpandedId]   = useState(null)
   const [localTracks, setLocalTracks] = useState(tracks)
   const fileRef = useRef()
+  // ── Batch upload state ──
+  const [batchQueue, setBatchQueue]   = useState([])   // [{name, status:'pending'|'uploading'|'done'|'error', error?}]
+  const [batchRunning, setBatchRunning] = useState(false)
+  const batchFileRef = useRef()
+  // ── Draft review bulk-select state ──
+  const [selectedDrafts, setSelectedDrafts] = useState([])  // track ids
+  const [bulkComposer, setBulkComposer]     = useState('')
+  const [bulkTag, setBulkTag]               = useState('')
+  const [autoSelectDrafts, setAutoSelectDrafts] = useState(false)  // select-all after a batch
   const [versionFile, setVersionFile]   = useState(null)
   const [versionLabel, setVersionLabel] = useState('')
   const [versionUploading, setVersionUploading] = useState(false)
@@ -211,6 +226,29 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
   const dragOverItem = useRef(null)
 
   useEffect(() => { setLocalTracks(tracks) }, [tracks])
+
+  // After a batch upload, auto-select all drafts so the composer dropdown is
+  // immediately available and the whole batch is ready to tag + publish.
+  useEffect(() => {
+    if (!autoSelectDrafts) return
+    const drafts = localTracks.filter(t => t.is_published === false).map(t => t.id)
+    if (drafts.length > 0) {
+      setSelectedDrafts(drafts)
+      setAutoSelectDrafts(false)
+    }
+  }, [localTracks, autoSelectDrafts])
+
+  // On first load, if drafts already exist from a prior session, pre-select them
+  // too so the composer/publish bar is ready without an extra click.
+  const didInitDraftSelect = useRef(false)
+  useEffect(() => {
+    if (didInitDraftSelect.current) return
+    const drafts = localTracks.filter(t => t.is_published === false)
+    if (drafts.length > 0) {
+      setSelectedDrafts(drafts.map(t => t.id))
+      didInitDraftSelect.current = true
+    }
+  }, [localTracks])
 
   const clientList = clients.filter(c => c.role === 'client')
 
@@ -304,6 +342,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       waveform_peaks: waveformPeaks || [],
       bpm: form.bpm ? parseInt(form.bpm) : null,
       tags: form.tags,
+      composer_id: form.composer_id || null,
       // Empty assigned_to means "visible to all clients" (current and future).
       // Only populate it to RESTRICT a track to specific clients.
       assigned_to: form.assignedTo,
@@ -315,9 +354,118 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
     setUploadProgress(100)
     await onRefresh()
     setPendingFile(null)
-    setForm({ title:'', tags:[], tagInput:'', assignedTo:[], bpm:'' })
+    setForm({ title:'', tags:[], tagInput:'', assignedTo:[], bpm:'', composer_id:'' })
     setUploading(false)
     onToast('Track uploaded successfully')
+  }
+
+  // ── Batch upload ─────────────────────────────────────────────
+  // Uploads many files sequentially as hidden DRAFTS (is_published:false).
+  // Per-file progress; one failure doesn't stop the rest.
+  const handleBatchSelect = async (e) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    if (e.target) e.target.value = ''  // allow re-selecting same files later
+    setBatchRunning(true)
+    setBatchQueue(files.map(f => ({ name: f.name, status: 'pending' })))
+
+    // Starting sort_order — keep drafts after existing tracks
+    let nextOrder = localTracks.length > 0 ? Math.max(...localTracks.map(t => t.sort_order || 0)) + 1 : 1
+
+    for (let idx = 0; idx < files.length; idx++) {
+      const file = files[idx]
+      setBatchQueue(q => q.map((item, i) => i === idx ? { ...item, status: 'uploading' } : item))
+      try {
+        const { duration, waveformPeaks } = await extractAudioData(file)
+        const filePath = `${Date.now()}-${idx}-${file.name.replace(/\s+/g, '_')}`
+        const { error: upErr } = await supabase.storage
+          .from('audio-tracks').upload(filePath, file, { contentType: file.type })
+        if (upErr) throw new Error(upErr.message)
+        const { error: dbErr } = await supabase.from('tracks').insert({
+          title: file.name.replace(/\.[^.]+$/, ''),   // filename as placeholder title
+          file_name: file.name,
+          file_path: filePath,
+          file_size: file.size,
+          mime_type: file.type,
+          duration: duration || null,
+          waveform_peaks: waveformPeaks || [],
+          tags: [],
+          assigned_to: [],          // visible to all (once published)
+          versions: [],
+          sort_order: nextOrder++,
+          featured: false,
+          is_published: false,      // lands as a hidden DRAFT
+        })
+        if (dbErr) throw new Error(dbErr.message)
+        setBatchQueue(q => q.map((item, i) => i === idx ? { ...item, status: 'done' } : item))
+      } catch (err) {
+        setBatchQueue(q => q.map((item, i) => i === idx ? { ...item, status: 'error', error: err.message } : item))
+      }
+    }
+
+    await onRefresh()
+    setBatchRunning(false)
+    setAutoSelectDrafts(true)   // trigger select-all once the new drafts land
+    onToast(`Batch complete — review drafts below`)
+  }
+
+  const clearBatchQueue = () => setBatchQueue([])
+
+  // ── Draft bulk actions ───────────────────────────────────────
+  const draftTracks = localTracks.filter(t => t.is_published === false)
+  const toggleDraftSelect = (id) => setSelectedDrafts(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
+  const selectAllDrafts = () => setSelectedDrafts(draftTracks.map(t => t.id))
+  const clearDraftSelect = () => setSelectedDrafts([])
+
+  const bulkSetComposer = async () => {
+    if (selectedDrafts.length === 0) { onToast('No drafts selected', 'error'); return }
+    const { error } = await supabase.from('tracks').update({ composer_id: bulkComposer || null }).in('id', selectedDrafts)
+    if (error) { onToast('Could not set composer', 'error'); return }
+    await onRefresh(); onToast(`Composer set on ${selectedDrafts.length} track${selectedDrafts.length!==1?'s':''}`)
+  }
+
+  const bulkAddTag = async () => {
+    const tag = bulkTag.trim().toLowerCase().replace(/\s+/g, '-')
+    if (!tag) { onToast('Enter a tag first', 'error'); return }
+    if (selectedDrafts.length === 0) { onToast('No drafts selected', 'error'); return }
+    // Add the tag to each selected draft (preserving existing tags)
+    await Promise.all(selectedDrafts.map(id => {
+      const t = localTracks.find(x => x.id === id)
+      const tags = t?.tags || []
+      if (tags.includes(tag)) return Promise.resolve()
+      return supabase.from('tracks').update({ tags: [...tags, tag] }).eq('id', id)
+    }))
+    await onRefresh(); setBulkTag(''); onToast(`Tag added to ${selectedDrafts.length} track${selectedDrafts.length!==1?'s':''}`)
+  }
+
+  const bulkPublish = async () => {
+    if (selectedDrafts.length === 0) { onToast('No drafts selected', 'error'); return }
+    const { error } = await supabase.from('tracks').update({ is_published: true }).in('id', selectedDrafts)
+    if (error) { onToast('Could not publish', 'error'); return }
+    const n = selectedDrafts.length
+    setSelectedDrafts([])
+    await onRefresh(); onToast(`Published ${n} track${n!==1?'s':''}`)
+  }
+
+  const publishAllDrafts = async () => {
+    if (draftTracks.length === 0) return
+    if (!confirm(`Publish all ${draftTracks.length} draft${draftTracks.length!==1?'s':''}?`)) return
+    const { error } = await supabase.from('tracks').update({ is_published: true }).in('id', draftTracks.map(t => t.id))
+    if (error) { onToast('Could not publish', 'error'); return }
+    setSelectedDrafts([])
+    await onRefresh(); onToast('All drafts published')
+  }
+
+  const bulkDeleteDrafts = async () => {
+    if (selectedDrafts.length === 0) { onToast('No drafts selected', 'error'); return }
+    if (!confirm(`Delete ${selectedDrafts.length} selected draft${selectedDrafts.length!==1?'s':''}? This removes the files.`)) return
+    // Remove storage files then rows
+    const toDelete = localTracks.filter(t => selectedDrafts.includes(t.id))
+    await Promise.all(toDelete.map(t => t.file_path
+      ? supabase.storage.from('audio-tracks').remove([t.file_path]) : Promise.resolve()))
+    await supabase.from('tracks').delete().in('id', selectedDrafts)
+    setSelectedDrafts([])
+    await onRefresh(); onToast('Drafts deleted')
   }
 
   // ── Drag to reorder ──────────────────────────────────────────
@@ -369,6 +517,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       versions: [...(track.versions || [])],
       featured_image: track.featured_image || null,
       bpm: track.bpm || '',
+      composer_id: track.composer_id || '',
       admin_notes: track.admin_notes || '',
       project_file_ref: track.project_file_ref || '',
     })
@@ -421,6 +570,7 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       versions: editState.versions,
       featured_image: featuredImagePath,
       bpm: editState.bpm ? parseInt(editState.bpm) : null,
+      composer_id: editState.composer_id || null,
       admin_notes: editState.admin_notes,
       project_file_ref: editState.project_file_ref,
     }).eq('id', trackId)
@@ -438,16 +588,19 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
   }
 
   const filtered = localTracks.filter(t =>
-    !search ||
+    // Show published tracks; also include a draft that's currently being edited
+    // so its edit panel renders (drafts otherwise live only in the review section).
+    (t.is_published !== false || t.id === editingId) &&
+    (!search ||
     t.title.toLowerCase().includes(search.toLowerCase()) ||
-    t.tags?.some(tag => tag.includes(search.toLowerCase()))
+    t.tags?.some(tag => tag.includes(search.toLowerCase())))
   )
 
   const featuredCount = localTracks.filter(t => t.featured).length
 
   return (
     <>
-      {!pendingFile && !extracting && (
+      {!pendingFile && !extracting && batchQueue.length === 0 && (
         <div className={`upload-zone ${dragOver ? 'drag-over' : ''}`}
           onDragOver={e => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
@@ -457,6 +610,47 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
           <div className="upload-hint">Drop audio file or <strong>click to browse</strong></div>
           <div className="upload-formats">MP3 · WAV · FLAC · AAC · OGG · M4A</div>
           <input ref={fileRef} type="file" accept="audio/*" style={{display:'none'}} onChange={handleFileDrop} />
+          <div style={{marginTop:14, paddingTop:14, borderTop:`1px solid ${T.border}`}} onClick={e => e.stopPropagation()}>
+            <button className="btn btn-ghost btn-sm" onClick={() => batchFileRef.current.click()}>
+              ⊕ Batch upload (multiple files → drafts)
+            </button>
+            <input ref={batchFileRef} type="file" accept="audio/*" multiple style={{display:'none'}} onChange={handleBatchSelect} />
+          </div>
+        </div>
+      )}
+
+      {batchQueue.length > 0 && (
+        <div className="upload-form">
+          <div className="upload-form-header">
+            <div>
+              <div className="upload-form-title">
+                {batchRunning ? 'Uploading batch…' : 'Batch upload complete'}
+              </div>
+              <div className="upload-form-file">
+                {batchQueue.filter(b => b.status==='done').length} done
+                {batchQueue.some(b => b.status==='error') && ` · ${batchQueue.filter(b => b.status==='error').length} failed`}
+                {' · '}{batchQueue.length} total — uploaded as hidden drafts
+              </div>
+            </div>
+            {!batchRunning && <button className="btn btn-ghost btn-sm" onClick={clearBatchQueue}>Close</button>}
+          </div>
+          <div style={{display:'flex', flexDirection:'column', gap:4, marginTop:8, maxHeight:240, overflowY:'auto'}}>
+            {batchQueue.map((item, i) => (
+              <div key={i} style={{display:'flex', alignItems:'center', gap:10, fontSize:13, padding:'5px 10px', background:T.bg2, borderRadius:2}}>
+                <span style={{width:16, flexShrink:0}}>
+                  {item.status==='done' ? '✓'
+                    : item.status==='error' ? '✕'
+                    : item.status==='uploading' ? <span className="spinner" style={{margin:0, width:11, height:11, borderWidth:2}}/>
+                    : '·'}
+                </span>
+                <span style={{flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+                  color: item.status==='error' ? T.red : item.status==='done' ? T.textPrimary : T.textSecondary}}>
+                  {item.name}
+                </span>
+                {item.status==='error' && <span style={{fontSize:11, color:T.red}}>{item.error}</span>}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -489,6 +683,14 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
               <label className="label">BPM</label>
               <input className="input" type="number" placeholder="120" min="1" max="300"
                 value={form.bpm} onChange={e => setForm(f => ({...f, bpm:e.target.value}))} />
+            </div>
+            <div className="field" style={{width:170}}>
+              <label className="label">Composer</label>
+              <select className="input" value={form.composer_id}
+                onChange={e => setForm(f => ({...f, composer_id:e.target.value}))}>
+                <option value="">— Uncredited —</option>
+                {composers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
             </div>
             <div className="field">
               <label className="label">Restrict to clients <span style={{color:T.textMuted, fontWeight:400}}>(optional — leave empty for all)</span></label>
@@ -526,6 +728,57 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
           <button className="btn btn-primary" style={{marginTop:16}} onClick={uploadTrack} disabled={uploading}>
             {uploading ? <><span className="spinner"/>Uploading…</> : 'Upload track'}
           </button>
+        </div>
+      )}
+
+      {draftTracks.length > 0 && (
+        <div style={{border:`1px solid ${T.amber}`, borderRadius:6, padding:16, marginBottom:20, background:T.bg1}}>
+          <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:12}}>
+            <div className="upload-form-title" style={{color:T.amber}}>
+              📝 {draftTracks.length} draft{draftTracks.length!==1?'s':''} — not visible to clients
+            </div>
+            <div style={{display:'flex', gap:8}}>
+              <button className="btn btn-ghost btn-sm" onClick={selectAllDrafts}>Select all</button>
+              {selectedDrafts.length > 0 && <button className="btn btn-ghost btn-sm" onClick={clearDraftSelect}>Clear ({selectedDrafts.length})</button>}
+              <button className="btn btn-primary btn-sm" onClick={publishAllDrafts}>Publish all</button>
+            </div>
+          </div>
+
+          {/* Bulk actions (apply to selected) */}
+          {selectedDrafts.length > 0 && (
+            <div style={{display:'flex', flexWrap:'wrap', gap:8, alignItems:'center', padding:'10px 12px', background:T.bg2, borderRadius:4, marginBottom:12}}>
+              <span style={{fontSize:12, color:T.textMuted, fontFamily:'Space Mono,monospace'}}>{selectedDrafts.length} selected:</span>
+              <select className="input" style={{width:150, padding:'5px 8px'}} value={bulkComposer} onChange={e => setBulkComposer(e.target.value)}>
+                <option value="">Set composer…</option>
+                {composers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button className="btn btn-ghost btn-sm" onClick={bulkSetComposer}>Apply</button>
+              <input className="input" style={{width:120, padding:'5px 8px'}} placeholder="add tag" value={bulkTag}
+                onChange={e => setBulkTag(e.target.value)} onKeyDown={e => e.key==='Enter' && bulkAddTag()} />
+              <button className="btn btn-ghost btn-sm" onClick={bulkAddTag}>Add tag</button>
+              <div style={{flex:1}} />
+              <button className="btn btn-primary btn-sm" onClick={bulkPublish}>Publish selected</button>
+              <button className="btn btn-danger btn-sm" onClick={bulkDeleteDrafts}>Delete</button>
+            </div>
+          )}
+
+          {/* Draft rows */}
+          <div style={{display:'flex', flexDirection:'column', gap:4}}>
+            {draftTracks.map(t => {
+              const composer = composers.find(c => c.id === t.composer_id)
+              return (
+                <div key={t.id} style={{display:'flex', alignItems:'center', gap:10, padding:'8px 10px', background:T.bg2, borderRadius:3,
+                  border:`1px solid ${selectedDrafts.includes(t.id) ? T.amber : 'transparent'}`}}>
+                  <input type="checkbox" checked={selectedDrafts.includes(t.id)} onChange={() => toggleDraftSelect(t.id)} style={{cursor:'pointer'}} />
+                  <span style={{flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:13}}>{t.title}</span>
+                  <span style={{fontSize:12, color:T.textMuted, fontFamily:'Space Mono,monospace'}}>
+                    {[composer?.name, fmtDuration(t.duration), t.tags?.length ? `${t.tags.length} tag${t.tags.length!==1?'s':''}` : null].filter(Boolean).join(' · ') || 'no metadata'}
+                  </span>
+                  <button className="btn btn-ghost btn-sm" onClick={(e) => openEdit(t, e)}>Edit</button>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
@@ -692,6 +945,15 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
                               value={editState.bpm}
                               onChange={e => setEditState(s => ({...s, bpm:e.target.value}))} />
                           </div>
+                          <div>
+                            <div className="track-edit-label">Composer</div>
+                            <select className="input" style={{minWidth:160}}
+                              value={editState.composer_id}
+                              onChange={e => setEditState(s => ({...s, composer_id:e.target.value}))}>
+                              <option value="">— Uncredited —</option>
+                              {composers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                          </div>
                         </div>
                         <div style={{gridColumn:'1 / -1'}}>
                           <div className="track-edit-label">Tags</div>
@@ -824,6 +1086,115 @@ function TrackManager({ tracks, clients, onRefresh, onPlay, playerProps, onToast
       {localTracks.length === 0 && !pendingFile && (
         <div className="empty-state"><div className="empty-icon">🎧</div>Upload your first track to get started</div>
       )}
+    </>
+  )
+}
+
+// ─── Composer Manager ──────────────────────────────────────────────
+// Composers are attribution entities (NOT logins). Each track references one
+// composer by id. Deleting a composer un-credits their tracks (sets null),
+// it does not delete the tracks.
+function ComposerManager({ composers, tracks, onRefresh, onToast }) {
+  const [form, setForm]       = useState({ name:'', bio:'' })
+  const [error, setError]     = useState('')
+  const [loading, setLoading] = useState(false)
+  const [editId, setEditId]   = useState(null)
+  const [editDraft, setEditDraft] = useState({ name:'', bio:'' })
+
+  const trackCount = (composerId) => tracks.filter(t => t.composer_id === composerId).length
+
+  const addComposer = async () => {
+    setError('')
+    if (!form.name.trim()) { setError('Name is required'); return }
+    if (composers.some(c => c.name.toLowerCase() === form.name.trim().toLowerCase())) {
+      setError('A composer with that name already exists'); return
+    }
+    setLoading(true)
+    const nextOrder = composers.length ? Math.max(...composers.map(c => c.sort_order || 0)) + 1 : 1
+    const { error: dbError } = await supabase.from('composers').insert({
+      name: form.name.trim(), bio: form.bio.trim(), sort_order: nextOrder,
+    })
+    if (dbError) { setError('Could not add composer: ' + dbError.message); setLoading(false); return }
+    await onRefresh()
+    setForm({ name:'', bio:'' })
+    setLoading(false)
+    onToast('Composer added')
+  }
+
+  const saveEdit = async (id) => {
+    if (!editDraft.name.trim()) { onToast('Name is required', 'error'); return }
+    const { error } = await supabase.from('composers').update({
+      name: editDraft.name.trim(), bio: editDraft.bio.trim(),
+    }).eq('id', id)
+    if (error) { onToast('Could not save', 'error'); return }
+    await onRefresh(); setEditId(null); onToast('Composer updated')
+  }
+
+  const deleteComposer = async (composer) => {
+    const n = trackCount(composer.id)
+    const msg = n > 0
+      ? `Remove ${composer.name}? ${n} track${n!==1?'s':''} will become uncredited (the tracks are kept).`
+      : `Remove ${composer.name}?`
+    if (!confirm(msg)) return
+    // Tracks reference composer_id with ON DELETE SET NULL, so they survive.
+    await supabase.from('composers').delete().eq('id', composer.id)
+    await onRefresh(); onToast('Composer removed')
+  }
+
+  return (
+    <>
+      <div className="upload-form">
+        <div className="upload-form-title" style={{marginBottom:16}}>Add composer</div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 2fr auto', gap:12, alignItems:'end'}}>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Name</label>
+            <input className="input" placeholder="e.g. Barry" value={form.name} onChange={e => setForm(f => ({...f, name:e.target.value}))} />
+          </div>
+          <div className="field" style={{marginBottom:0}}>
+            <label className="label">Bio <span style={{color:T.textMuted, fontWeight:400}}>(optional)</span></label>
+            <input className="input" placeholder="Short description" value={form.bio} onChange={e => setForm(f => ({...f, bio:e.target.value}))} />
+          </div>
+          <button className="btn btn-primary" onClick={addComposer} disabled={loading}>
+            {loading ? <><span className="spinner"/>Adding…</> : 'Add composer'}
+          </button>
+        </div>
+        {error && <div className="error-msg" style={{marginTop:8}}>{error}</div>}
+      </div>
+      <div className="section-header">{composers.length} composer{composers.length!==1?'s':''}</div>
+      {composers.length === 0
+        ? <div className="empty-state"><div className="empty-icon">🎼</div>No composers yet</div>
+        : composers.map(c => (
+          <div key={c.id} className="client-card" style={{flexDirection:'column', alignItems:'stretch', gap:0}}>
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', gap:12}}>
+              <div style={{minWidth:0}}>
+                <div className="client-name">{c.name}</div>
+                <div className="client-meta">
+                  {trackCount(c.id)} track{trackCount(c.id)!==1?'s':''}{c.bio ? ` · ${c.bio}` : ''}
+                </div>
+              </div>
+              <div style={{display:'flex', gap:8}}>
+                {editId === c.id
+                  ? <button className="btn btn-ghost btn-sm" onClick={() => setEditId(null)}>Close</button>
+                  : <button className="btn btn-ghost btn-sm" onClick={() => { setEditId(c.id); setEditDraft({ name:c.name, bio:c.bio || '' }) }}>Edit</button>}
+                <button className="btn btn-danger btn-sm" onClick={() => deleteComposer(c)}>Remove</button>
+              </div>
+            </div>
+            {editId === c.id && (
+              <div style={{marginTop:12, borderTop:`1px solid ${T.border}`, paddingTop:12, display:'grid', gridTemplateColumns:'1fr 2fr auto', gap:12, alignItems:'end'}}>
+                <div className="field" style={{marginBottom:0}}>
+                  <label className="label">Name</label>
+                  <input className="input" value={editDraft.name} onChange={e => setEditDraft(d => ({...d, name:e.target.value}))} />
+                </div>
+                <div className="field" style={{marginBottom:0}}>
+                  <label className="label">Bio</label>
+                  <input className="input" value={editDraft.bio} onChange={e => setEditDraft(d => ({...d, bio:e.target.value}))} />
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={() => saveEdit(c.id)}>Save</button>
+              </div>
+            )}
+          </div>
+        ))
+      }
     </>
   )
 }
