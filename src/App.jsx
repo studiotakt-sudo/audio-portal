@@ -280,7 +280,10 @@ export default function App() {
   useEffect(() => {
     const init = async () => {
       const saved = sessionStorage.getItem('portal_client')
-      if (saved) setClientRow(JSON.parse(saved))
+      if (saved) {
+        const { password_hash, ...safe } = JSON.parse(saved)
+        setClientRow(safe)
+      }
       const { data } = await supabase.from('theme').select('colors').eq('id', 1).single()
       if (data?.colors && Object.keys(data.colors).length > 0) {
         setTheme({ ...DEFAULT_THEME, ...data.colors })
@@ -291,8 +294,10 @@ export default function App() {
   }, [])
 
   const handleLogin = (client) => {
-    setClientRow(client)
-    sessionStorage.setItem('portal_client', JSON.stringify(client))
+    // Never keep the password hash in app state or sessionStorage.
+    const { password_hash, ...safe } = client
+    setClientRow(safe)
+    sessionStorage.setItem('portal_client', JSON.stringify(safe))
   }
 
   // ── Signed URL cache — persists for the session ───────────────

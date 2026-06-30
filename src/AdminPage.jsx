@@ -350,7 +350,11 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
       sort_order: nextOrder,
       featured: false,
     })
-    if (dbError) { onToast('Could not save track: ' + dbError.message, 'error'); setUploading(false); return }
+    if (dbError) {
+      // DB insert failed — remove the orphaned storage file.
+      await supabase.storage.from('audio-tracks').remove([filePath]).catch(() => {})
+      onToast('Could not save track: ' + dbError.message, 'error'); setUploading(false); return
+    }
     setUploadProgress(100)
     await onRefresh()
     setPendingFile(null)
@@ -396,7 +400,12 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
           featured: false,
           is_published: false,      // lands as a hidden DRAFT
         })
-        if (dbErr) throw new Error(dbErr.message)
+        if (dbErr) {
+          // DB insert failed — remove the file we just uploaded so it doesn't
+          // orphan in storage with no track row pointing at it.
+          await supabase.storage.from('audio-tracks').remove([filePath]).catch(() => {})
+          throw new Error(dbErr.message)
+        }
         setBatchQueue(q => q.map((item, i) => i === idx ? { ...item, status: 'done' } : item))
       } catch (err) {
         setBatchQueue(q => q.map((item, i) => i === idx ? { ...item, status: 'error', error: err.message } : item))
