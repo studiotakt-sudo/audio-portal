@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { supabase } from './supabase'
+import { supabase, CLIENT_SELF_COLS } from './supabase'
 import LoginPage from './LoginPage'
 import AdminPage from './AdminPage'
 import ClientPage from './ClientPage'
@@ -184,12 +184,6 @@ export function fmtTime(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export function hashPassword(str) {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0 }
-  return hash.toString(16)
-}
-
 // ─── Inline waveform seekbar (used inside track rows) ─────────────
 // Progress advances ~4x/sec. Redrawing the canvas (clearRect + repaint) on
 // every tick blanks the waveform momentarily each frame — that's the flicker.
@@ -279,43 +273,77 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
-      const saved = sessionStorage.getItem('portal_client')
-      if (saved) {
-        const { password_hash, ...safe } = JSON.parse(saved)
-        setClientRow(safe)
+      // Restore the Supabase Auth session (supabase-js persists it itself).
+      // Wrapped so one bad read can't strand the app on the loading spinner.
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          const { data: row } = await supabase
+            .from('clients')
+            .select(CLIENT_SELF_COLS)
+            .eq('user_id', session.user.id)
+            .single()
+          if (row) setClientRow(row)
+          else await supabase.auth.signOut() // auth user with no portal profile
+        }
+      } catch (err) {
+        console.error('Session restore failed:', err)
       }
-      const { data } = await supabase.from('theme').select('colors').eq('id', 1).single()
-      if (data?.colors && Object.keys(data.colors).length > 0) {
-        setTheme({ ...DEFAULT_THEME, ...data.colors })
-      }
+      try {
+        const { data } = await supabase.from('theme').select('colors').eq('id', 1).single()
+        if (data?.colors && Object.keys(data.colors).length > 0) {
+          setTheme({ ...DEFAULT_THEME, ...data.colors })
+        }
+      } catch { /* theme is cosmetic — never block the app on it */ }
       setLoading(false)
     }
     init()
+
+    // If the session ends elsewhere (another tab, token revoked), drop to login.
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') setClientRow(null)
+    })
+    return () => sub.subscription.unsubscribe()
   }, [])
 
   const handleLogin = (client) => {
-    // Never keep the password hash in app state or sessionStorage.
-    const { password_hash, ...safe } = client
-    setClientRow(safe)
-    sessionStorage.setItem('portal_client', JSON.stringify(safe))
+    // The session itself is managed by Supabase Auth; we only keep the
+    // (non-sensitive) portal profile in state.
+    setClientRow(client)
   }
 
   // ── Signed URL cache — persists for the session ───────────────
+  // Entries are { url, exp } (ms epoch). Signed URLs die after SIGN_TTL,
+  // so a tab left open must NOT keep serving a stale URL from cache —
+  // that's a silent playback failure two hours in. An entry only counts
+  // as a hit while it still has a comfortable margin before expiry.
+  const SIGN_TTL = 7200                       // seconds
+  const EXPIRY_MARGIN = 10 * 60 * 1000        // refresh when <10 min left
   const urlCache = useRef({})
 
+  const cacheHit = (filePath) => {
+    const hit = urlCache.current[filePath]
+    return hit && hit.exp - Date.now() > EXPIRY_MARGIN ? hit.url : null
+  }
+
+  const storeUrl = (filePath, url) => {
+    urlCache.current[filePath] = { url, exp: Date.now() + SIGN_TTL * 1000 }
+    return url
+  }
+
   const getCachedUrl = async (filePath) => {
-    if (urlCache.current[filePath]) return urlCache.current[filePath]
-    const { data, error } = await supabase.storage.from('audio-tracks').createSignedUrl(filePath, 7200)
+    const hit = cacheHit(filePath)
+    if (hit) return hit
+    const { data, error } = await supabase.storage.from('audio-tracks').createSignedUrl(filePath, SIGN_TTL)
     if (error || !data?.signedUrl) return null
-    urlCache.current[filePath] = data.signedUrl
-    return data.signedUrl
+    return storeUrl(filePath, data.signedUrl)
   }
 
   // Preload signed URLs in the background after tracks are known
   const preloadUrls = useCallback(async (tracks) => {
     // Stagger requests so we don't hammer the API
     for (const track of tracks.slice(0, 20)) { // preload first 20
-      if (!urlCache.current[track.file_path]) {
+      if (!cacheHit(track.file_path)) {
         await getCachedUrl(track.file_path)
         await new Promise(r => setTimeout(r, 100)) // 100ms gap between requests
       }
@@ -327,6 +355,7 @@ export default function App() {
   const isPlayingRef    = useRef(false)
   const loadingRef      = useRef(null)
   const playLoggedRef   = useRef(false)   // has the current track passed 4s & been logged?
+  const retriedRef      = useRef(null)    // track id we already re-signed once after an error
   const clientRowRef    = useRef(null)    // current client, for the audio event closures
   const nextTrackResolverRef = useRef(null) // ClientPage sets this: (currentTrackId) => nextVisibleTrack | null
 
@@ -335,9 +364,9 @@ export default function App() {
   useEffect(() => { isPlayingRef.current = isPlaying }, [isPlaying])
   useEffect(() => { clientRowRef.current = clientRow }, [clientRow])
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    await supabase.auth.signOut().catch(() => {})
     setClientRow(null)
-    sessionStorage.removeItem('portal_client')
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = '' }
     setCurrentTrack(null); setIsPlaying(false); setSignedUrl(null)
     currentTrackRef.current = null; isPlayingRef.current = false
@@ -377,8 +406,8 @@ export default function App() {
     setDuration(0)
     playLoggedRef.current = false   // new track — allow one play event once it passes 4s
 
-    // If URL already cached — start playing synchronously, zero delay
-    const cachedUrl = urlCache.current[track.file_path]
+    // If a still-fresh URL is cached — start playing synchronously, zero delay
+    const cachedUrl = cacheHit(track.file_path)
     if (cachedUrl) {
       setSignedUrl(cachedUrl)
       el.pause()
@@ -388,18 +417,18 @@ export default function App() {
       return
     }
 
-    // URL not cached yet — show spinner and fetch
+    // URL not cached (or expired) — show spinner and fetch a fresh one
     loadingRef.current = track.id
     setLoadingTrackId(track.id)
 
     supabase.storage.from('audio-tracks')
-      .createSignedUrl(track.file_path, 7200)
+      .createSignedUrl(track.file_path, SIGN_TTL)
       .then(({ data, error }) => {
         loadingRef.current = null
         setLoadingTrackId(null)
         if (error || !data?.signedUrl) { showToast('Could not load audio', 'error'); setCurrentTrack(null); return }
         const url = data.signedUrl
-        urlCache.current[track.file_path] = url
+        storeUrl(track.file_path, url)
         setSignedUrl(url)
         el.pause()
         el.src = url
@@ -480,8 +509,29 @@ export default function App() {
             if (next) playTrack(next)
           }
         }}
-        onPlay={() => setIsPlaying(true)}
+        onPlay={() => { setIsPlaying(true); retriedRef.current = null }}
         onPause={() => setIsPlaying(false)}
+        onError={async () => {
+          // Most common cause: the signed URL expired (long-idle tab).
+          // Drop the cache entry, re-sign once, and retry; if that also
+          // fails, surface it instead of looping.
+          const tr = currentTrackRef.current
+          const el = audioRef.current
+          if (!tr || !el || !el.src) return
+          if (retriedRef.current === tr.id) { showToast('Could not load audio', 'error'); return }
+          retriedRef.current = tr.id
+          delete urlCache.current[tr.file_path]
+          const { data } = await supabase.storage.from('audio-tracks').createSignedUrl(tr.file_path, SIGN_TTL)
+          if (data?.signedUrl && currentTrackRef.current?.id === tr.id) {
+            storeUrl(tr.file_path, data.signedUrl)
+            setSignedUrl(data.signedUrl)
+            el.src = data.signedUrl
+            el.load()
+            el.play().catch(() => {})
+          } else {
+            showToast('Could not load audio', 'error')
+          }
+        }}
       />
       <div className="portal">
         <div className="topbar">
