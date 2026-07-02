@@ -1,11 +1,29 @@
 import { useState, useEffect, useRef, memo } from 'react'
-import { supabase } from './supabase'
+import { supabase, sanitizeFileName } from './supabase'
 import { DEFAULT_THEME as T, fmtTime, InlineSeekbar } from './App'
 
-function hashPassword(str) {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0 }
-  return hash.toString(16)
+const MIN_PASSWORD_LENGTH = 8
+
+// All user management (create account, reset password, delete) goes through
+// the admin-users edge function: those operations need the service role key,
+// which must never exist in the browser. The function re-verifies that the
+// caller is an admin server-side — this is not just a UI convenience.
+async function adminAction(body) {
+  try {
+    const { data, error } = await supabase.functions.invoke('admin-users', { body })
+    if (error) {
+      let msg = error.message || 'Request failed'
+      try {
+        const j = await error.context?.json()
+        if (j?.error) msg = j.error
+      } catch { /* keep the generic message */ }
+      return { error: msg }
+    }
+    if (data?.error) return { error: data.error }
+    return { data }
+  } catch (e) {
+    return { error: String(e?.message || e) }
+  }
 }
 
 function fmtDuration(sec) {
@@ -25,15 +43,11 @@ function TrackStats({ trackId, clients }) {
     let alive = true
     ;(async () => {
       setLoading(true)
-      const { data } = await supabase.from('track_events')
-        .select('client_id, event_type')
-        .eq('track_id', trackId)
+      // Aggregated in Postgres — immune to the 1000-row select cap.
+      const { data } = await supabase.rpc('track_stats', { p_track_id: trackId })
       if (!alive) return
-      const rows = data || []
-      setPlays(rows.filter(r => r.event_type === 'play').length)
-      const dl = new Map()
-      rows.filter(r => r.event_type === 'download').forEach(r => dl.set(r.client_id, (dl.get(r.client_id) || 0) + 1))
-      setDownloaders([...dl.entries()].sort((a, b) => b[1] - a[1]))
+      setPlays(data?.plays || 0)
+      setDownloaders((data?.downloaders || []).map(d => [d.client_id, d.count]))
       setLoading(false)
     })()
     return () => { alive = false }
@@ -140,14 +154,46 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
 
   const fetchAll = async () => {
     setLoadingData(true)
-    const [{ data: tracksData }, { data: clientsData }, composersRes] = await Promise.all([
-      supabase.from('tracks').select('*').order('sort_order', { ascending: true }),
-      supabase.from('clients').select('*').order('created_at'),
-      // composers may not exist yet if the Phase 5 migration hasn't run — tolerate it
-      supabase.from('composers').select('*').order('sort_order', { ascending: true }).then(r => r, () => ({ data: [] })),
-    ])
-    setTracks(tracksData || [])
-    setClients(clientsData || [])
+
+    // Private admin data lives in track_private / client_private (admin-only
+    // RLS) since Phase 7. Fetch with an embedded join and flatten back onto
+    // the row so the rest of this file keeps using t.admin_notes as before.
+    let tRes = await supabase.from('tracks')
+      .select('*, track_private(admin_notes, project_file_ref)')
+      .order('sort_order', { ascending: true })
+    if (tRes.error) {
+      // Tolerate a mid-migration state where the join isn't available yet.
+      console.error('tracks fetch with private join failed, falling back:', tRes.error.message)
+      tRes = await supabase.from('tracks').select('*').order('sort_order', { ascending: true })
+    }
+    const tracksData = (tRes.data || []).map(({ track_private, ...t }) => {
+      const p = Array.isArray(track_private) ? track_private[0] : track_private
+      return {
+        ...t,
+        admin_notes: p?.admin_notes ?? t.admin_notes ?? '',
+        project_file_ref: p?.project_file_ref ?? t.project_file_ref ?? '',
+      }
+    })
+
+    let cRes = await supabase.from('clients')
+      .select('*, client_private(admin_notes)')
+      .order('created_at')
+    if (cRes.error) {
+      console.error('clients fetch with private join failed, falling back:', cRes.error.message)
+      cRes = await supabase.from('clients').select('*').order('created_at')
+    }
+    const clientsData = (cRes.data || []).map(({ client_private, ...c }) => {
+      const p = Array.isArray(client_private) ? client_private[0] : client_private
+      return { ...c, admin_notes: p?.admin_notes ?? c.admin_notes ?? '' }
+    })
+
+    // composers may not exist yet if the Phase 5 migration hasn't run — tolerate it
+    const composersRes = await supabase.from('composers')
+      .select('*').order('sort_order', { ascending: true })
+      .then(r => r, () => ({ data: [] }))
+
+    setTracks(tracksData)
+    setClients(clientsData)
     setComposers(composersRes?.data || [])
     setLoadingData(false)
   }
@@ -326,7 +372,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     if (!pendingFile || !pendingFile.file) return
     setUploading(true); setUploadProgress(10)
     const { file, duration, waveformPeaks } = pendingFile
-    const filePath = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`
+    const filePath = `${Date.now()}-${sanitizeFileName(file.name)}`
     const { error: uploadError } = await supabase.storage
       .from('audio-tracks').upload(filePath, file, { contentType: file.type })
     if (uploadError) { onToast('Upload failed: ' + uploadError.message, 'error'); setUploading(false); return }
@@ -381,7 +427,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
       setBatchQueue(q => q.map((item, i) => i === idx ? { ...item, status: 'uploading' } : item))
       try {
         const { duration, waveformPeaks } = await extractAudioData(file)
-        const filePath = `${Date.now()}-${idx}-${file.name.replace(/\s+/g, '_')}`
+        const filePath = `${Date.now()}-${idx}-${sanitizeFileName(file.name)}`
         const { error: upErr } = await supabase.storage
           .from('audio-tracks').upload(filePath, file, { contentType: file.type })
         if (upErr) throw new Error(upErr.message)
@@ -488,14 +534,20 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     reordered.splice(dragOverItem.current, 0, dragged)
     dragItem.current = null; dragOverItem.current = null
 
-    // Optimistically update UI
-    setLocalTracks(reordered)
+    // Optimistically update UI (with the new sort_order values, so a second
+    // drag before refresh diffs against reality, not stale numbers)
+    const renumbered = reordered.map((t, idx) => ({ ...t, sort_order: idx + 1 }))
+    setLocalTracks(renumbered)
 
-    // Save new sort_order to DB
-    await Promise.all(reordered.map((t, idx) =>
-      supabase.from('tracks').update({ sort_order: idx + 1 }).eq('id', t.id)
+    // Only write rows whose position actually changed, and check the results —
+    // previously this toasted "Order saved" even if every update failed.
+    const changed = renumbered.filter((t, idx) => reordered[idx].sort_order !== idx + 1)
+    const results = await Promise.all(changed.map(t =>
+      supabase.from('tracks').update({ sort_order: t.sort_order }).eq('id', t.id)
     ))
-    onToast('Order saved')
+    const failed = results.filter(r => r.error).length
+    if (failed > 0) onToast(`Order partially saved — ${failed} update${failed !== 1 ? 's' : ''} failed`, 'error')
+    else onToast('Order saved')
   }
 
   // ── Featured toggle ──────────────────────────────────────────
@@ -550,7 +602,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
       audio.addEventListener('loadedmetadata', () => { URL.revokeObjectURL(url); resolve(audio.duration) })
       audio.addEventListener('error', () => { URL.revokeObjectURL(url); resolve(null) })
     })
-    const filePath = `${Date.now()}-${versionFile.name.replace(/\s+/g, '_')}`
+    const filePath = `${Date.now()}-${sanitizeFileName(versionFile.name)}`
     const { error } = await supabase.storage
       .from('audio-tracks').upload(filePath, versionFile, { contentType: versionFile.type })
     if (error) { onToast('Version upload failed', 'error'); setVersionUploading(false); return }
@@ -566,7 +618,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     // Upload new featured image if one was selected
     if (featuredImageFile) {
       setFeaturedImageUploading(true)
-      const imgPath = `${Date.now()}-${featuredImageFile.name.replace(/\s+/g, '_')}`
+      const imgPath = `${Date.now()}-${sanitizeFileName(featuredImageFile.name)}`
       const { error: imgError } = await supabase.storage
         .from('featured-images').upload(imgPath, featuredImageFile, { contentType: featuredImageFile.type })
       if (!imgError) featuredImagePath = imgPath
@@ -580,10 +632,15 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
       featured_image: featuredImagePath,
       bpm: editState.bpm ? parseInt(editState.bpm) : null,
       composer_id: editState.composer_id || null,
-      admin_notes: editState.admin_notes,
-      project_file_ref: editState.project_file_ref,
     }).eq('id', trackId)
     if (error) { onToast('Save failed', 'error'); return }
+    // Private fields live in the admin-only table since Phase 7.
+    const { error: privError } = await supabase.from('track_private').upsert({
+      track_id: trackId,
+      admin_notes: editState.admin_notes,
+      project_file_ref: editState.project_file_ref,
+    })
+    if (privError) { onToast('Track saved, but private notes failed: ' + privError.message, 'error') }
     setFeaturedImageFile(null)
     await onRefresh(); setEditingId(null); onToast('Track updated')
   }
@@ -1230,20 +1287,15 @@ function AdminManager({ clients, currentAdmin, onRefresh, onToast }) {
     const email = form.email.trim().toLowerCase()
     if (!email) { setError('Email is required — admins log in with their email'); return }
     if (!isValidEmail(email)) { setError('Please enter a valid email address'); return }
-    if (form.password.length < 4) { setError('Password must be at least 4 characters'); return }
+    if (form.password.length < MIN_PASSWORD_LENGTH) { setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`); return }
     if (clients.some(c => (c.email || '').toLowerCase() === email)) {
       setError('An account with that email already exists'); return
     }
     setLoading(true)
-    const { error: dbError } = await supabase.from('clients').insert({
-      name: form.name.trim(), email, role: 'admin', password_hash: hashPassword(form.password),
-    }).select().single()
-    if (dbError) {
-      const msg = dbError.message && dbError.message.includes('idx_clients_email_unique')
-        ? 'That email is already in use'
-        : 'Could not add admin: ' + dbError.message
-      setError(msg); setLoading(false); return
-    }
+    const { error: fnError } = await adminAction({
+      action: 'create_user', name: form.name.trim(), email, password: form.password, role: 'admin',
+    })
+    if (fnError) { setError('Could not add admin: ' + fnError); setLoading(false); return }
     await onRefresh()
     setForm({ name:'', email:'', password:'' })
     setLoading(false)
@@ -1251,9 +1303,9 @@ function AdminManager({ clients, currentAdmin, onRefresh, onToast }) {
   }
 
   const resetPassword = async (id) => {
-    if (newPass.length < 4) { onToast('Password must be at least 4 characters', 'error'); return }
-    const { error } = await supabase.from('clients').update({ password_hash: hashPassword(newPass) }).eq('id', id)
-    if (error) { onToast('Could not update password', 'error'); return }
+    if (newPass.length < MIN_PASSWORD_LENGTH) { onToast(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`, 'error'); return }
+    const { error } = await adminAction({ action: 'reset_password', client_id: id, password: newPass })
+    if (error) { onToast('Could not update password: ' + error, 'error'); return }
     setEditingId(null); setNewPass(''); onToast('Password updated')
   }
 
@@ -1261,7 +1313,10 @@ function AdminManager({ clients, currentAdmin, onRefresh, onToast }) {
     if (isProtected(admin)) { onToast('The base admin cannot be removed', 'error'); return }
     if (admin.id === currentAdmin?.id) { onToast("You can't remove the account you're logged in as", 'error'); return }
     if (!confirm('Remove admin ' + (admin.name || admin.email) + '?')) return
-    await supabase.from('clients').delete().eq('id', admin.id)
+    // Edge function removes both the clients row and the auth account
+    // (and re-enforces the protected/self guards server-side).
+    const { error } = await adminAction({ action: 'delete_user', client_id: admin.id })
+    if (error) { onToast('Could not remove admin: ' + error, 'error'); return }
     await onRefresh(); onToast('Admin removed')
   }
 
@@ -1344,7 +1399,7 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
     const email = form.email.trim().toLowerCase()
     if (!email) { setError('Email is required — clients log in with their email'); return }
     if (!isValidEmail(email)) { setError('Please enter a valid email address'); return }
-    if (form.password.length < 4) { setError('Password must be at least 4 characters'); return }
+    if (form.password.length < MIN_PASSWORD_LENGTH) { setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`); return }
     if (clients.some(c => c.name.toLowerCase() === form.name.trim().toLowerCase())) {
       setError('A client with that name already exists'); return
     }
@@ -1352,15 +1407,10 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
       setError('A client with that email already exists'); return
     }
     setLoading(true)
-    const { error: dbError } = await supabase.from('clients').insert({
-      name: form.name.trim(), email, role: 'client', password_hash: hashPassword(form.password),
-    }).select().single()
-    if (dbError) {
-      const msg = dbError.message && dbError.message.includes('idx_clients_email_unique')
-        ? 'That email is already in use'
-        : 'Could not add client: ' + dbError.message
-      setError(msg); setLoading(false); return
-    }
+    const { error: fnError } = await adminAction({
+      action: 'create_user', name: form.name.trim(), email, password: form.password, role: 'client',
+    })
+    if (fnError) { setError('Could not add client: ' + fnError); setLoading(false); return }
 
     // No track assignment needed: tracks with an empty assigned_to are visible
     // to every client (including this new one) and any tracks added later.
@@ -1372,14 +1422,16 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
   }
 
   const resetPassword = async (id) => {
-    if (newPass.length < 4) { onToast('Password must be at least 4 characters', 'error'); return }
-    const { error } = await supabase.from('clients').update({ password_hash: hashPassword(newPass) }).eq('id', id)
-    if (error) { onToast('Could not update password', 'error'); return }
+    if (newPass.length < MIN_PASSWORD_LENGTH) { onToast(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`, 'error'); return }
+    const { error } = await adminAction({ action: 'reset_password', client_id: id, password: newPass })
+    if (error) { onToast('Could not update password: ' + error, 'error'); return }
     setEditingId(null); setNewPass(''); onToast('Password updated')
   }
 
   const saveNotes = async (id) => {
-    const { error } = await supabase.from('clients').update({ admin_notes: notesDraft }).eq('id', id)
+    // Private notes live in client_private (admin-only RLS) since Phase 7 —
+    // they never ride along with the row a client fetches about themselves.
+    const { error } = await supabase.from('client_private').upsert({ client_id: id, admin_notes: notesDraft })
     if (error) { onToast('Could not save notes', 'error'); return }
     await onRefresh(); setNotesId(null); setNotesDraft(''); onToast('Notes saved')
   }
@@ -1397,7 +1449,9 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
 
   const deleteClient = async (client) => {
     if (!confirm('Remove ' + client.name + '?')) return
-    await supabase.from('clients').delete().eq('id', client.id)
+    // Edge function removes both the clients row and the auth account.
+    const { error } = await adminAction({ action: 'delete_user', client_id: client.id })
+    if (error) { onToast('Could not remove client: ' + error, 'error'); return }
     await onRefresh(); onToast('Client removed')
   }
 
@@ -1509,6 +1563,7 @@ function ClientDownloads({ clientId, tracks }) {
         .eq('client_id', clientId)
         .eq('event_type', 'download')
         .order('created_at', { ascending: false })
+        .limit(500)   // explicit bound — most recent 500, not a silent truncation
       if (!alive) return
       setRows(data || [])
       setLoading(false)
@@ -1546,7 +1601,7 @@ function ClientDownloads({ clientId, tracks }) {
 function InsightsManager({ tracks, clients, onToast }) {
   const [range, setRange]     = useState('30d')   // '7d' | '30d' | 'all'
   const [defaultRange, setDefaultRange] = useState('30d')
-  const [events, setEvents]   = useState([])
+  const [summary, setSummary] = useState(null)     // aggregated in Postgres via RPC
   const [loading, setLoading] = useState(true)
   const [ready, setReady]     = useState(false)
 
@@ -1572,14 +1627,16 @@ function InsightsManager({ tracks, clients, onToast }) {
 
   const fetchEvents = async (r) => {
     setLoading(true)
-    let q = supabase.from('track_events').select('track_id, client_id, event_type, created_at')
+    // Aggregate in the database. Fetching raw events silently truncated at
+    // Supabase's 1000-row cap — the counts here are now exact at any volume.
+    let since = null
     if (r !== 'all') {
       const days = r === '7d' ? 7 : 30
-      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
-      q = q.gte('created_at', since)
+      since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
     }
-    const { data } = await q
-    setEvents(data || [])
+    const { data, error } = await supabase.rpc('insights_summary', { p_since: since })
+    if (error) { onToast('Could not load insights', 'error'); setSummary(null) }
+    else setSummary(data)
     setLoading(false)
   }
 
@@ -1593,20 +1650,13 @@ function InsightsManager({ tracks, clients, onToast }) {
 
   const rangeLabel = (r) => r === '7d' ? 'last 7 days' : r === '30d' ? 'last 30 days' : 'all time'
 
-  // ── Aggregate in memory (a few hundred/thousand rows — instant) ──
-  const plays     = events.filter(e => e.event_type === 'play')
-  const downloads = events.filter(e => e.event_type === 'download')
-
-  const tally = (rows, key) => {
-    const m = new Map()
-    rows.forEach(r => m.set(r[key], (m.get(r[key]) || 0) + 1))
-    return [...m.entries()].sort((a, b) => b[1] - a[1])
-  }
-
-  const topPlayed     = tally(plays, 'track_id').slice(0, 8)
-  const topDownloaded = tally(downloads, 'track_id').slice(0, 8)
-  const activeClients = tally(events, 'client_id').slice(0, 8)
-  const uniqueClients = new Set(events.map(e => e.client_id).filter(Boolean)).size
+  // ── Shapes from the RPC summary ({id, count} → [id, count]) ──────
+  const playCount     = summary?.plays || 0
+  const downloadCount = summary?.downloads || 0
+  const uniqueClients = summary?.unique_clients || 0
+  const topPlayed     = (summary?.top_played || []).map(r => [r.id, r.count])
+  const topDownloaded = (summary?.top_downloaded || []).map(r => [r.id, r.count])
+  const activeClients = (summary?.active_clients || []).map(r => [r.id, r.count])
 
   const Leader = ({ title, rows, labelFn, unit }) => (
     <div style={{background:T.bg1, border:`1px solid ${T.border}`, borderRadius:6, padding:16}}>
@@ -1644,8 +1694,8 @@ function InsightsManager({ tracks, clients, onToast }) {
         : (
           <>
             <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:12, marginBottom:20}}>
-              <Stat label="Plays" value={plays.length} />
-              <Stat label="Downloads" value={downloads.length} />
+              <Stat label="Plays" value={playCount} />
+              <Stat label="Downloads" value={downloadCount} />
               <Stat label="Active clients" value={uniqueClients} />
             </div>
             <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:12}}>

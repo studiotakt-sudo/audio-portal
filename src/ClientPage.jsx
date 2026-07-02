@@ -263,7 +263,11 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
   }
 
   const download = useCallback(async (track) => {
-    const { data, error } = await supabase.storage.from('audio-tracks').createSignedUrl(track.file_path, 60)
+    // The `download` option makes Supabase serve Content-Disposition with the
+    // original filename — the a.download attribute is ignored cross-origin.
+    const { data, error } = await supabase.storage
+      .from('audio-tracks')
+      .createSignedUrl(track.file_path, 300, { download: track.file_name || track.title || true })
     if (error || !data?.signedUrl) { onToast('Download failed', 'error'); return }
     const a = document.createElement('a')
     a.href = data.signedUrl; a.download = track.file_name || track.title; a.click()

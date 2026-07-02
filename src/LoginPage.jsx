@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { supabase } from './supabase'
-import { hashPassword } from './App'
+import { supabase, CLIENT_SELF_COLS } from './supabase'
 
 export default function LoginPage({ onLogin, onToast }) {
   const [email, setEmail]       = useState('')
@@ -13,23 +12,33 @@ export default function LoginPage({ onLogin, onToast }) {
     if (!email.trim() || !password) { setError('Please enter your email and password'); return }
     setLoading(true)
 
-    const { data, error: dbError } = await supabase
+    // Real authentication: bcrypt verification happens server-side in
+    // Supabase Auth. No hashes ever reach (or leave) the browser.
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    })
+    if (authError || !authData?.user) {
+      // One message for both wrong-email and wrong-password — no account
+      // enumeration from the login form.
+      setError('Incorrect email or password')
+      setLoading(false); return
+    }
+
+    // Fetch this user's portal profile (RLS: own row only for clients).
+    const { data: row, error: rowError } = await supabase
       .from('clients')
-      .select('*')
-      .ilike('email', email.trim())  // case-insensitive email match
+      .select(CLIENT_SELF_COLS)
+      .eq('user_id', authData.user.id)
       .single()
 
-    if (dbError || !data) {
-      setError('Email not found')
+    if (rowError || !row) {
+      await supabase.auth.signOut()
+      setError('This account is not set up for the portal — contact the studio.')
       setLoading(false); return
     }
 
-    if (data.password_hash !== hashPassword(password)) {
-      setError('Incorrect password')
-      setLoading(false); return
-    }
-
-    onLogin(data)
+    onLogin(row)
   }
 
   return (
