@@ -222,7 +222,7 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
 
   const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme, loadingTrackId, preloadUrls } = playerProps
   const accentColor = theme?.amber || T.amber
-  const mutedColor  = theme?.border || T.border
+  const mutedColor  = '#4a4a4a'   // unplayed waveform — brighter than the hairline border for readability
   const cyanColor   = theme?.cyan || T.cyan
 
   useEffect(() => { fetchTracks(); fetchComposers() }, [])
@@ -291,7 +291,9 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
     return matchSearch && matchTag
   })
   const featuredTracks = tracks.filter(t => t.featured)
-  const showFeatured = featuredTracks.length > 0 && !search && !activeTag
+  // Featured strip removed from the client view per request. Set to true to
+  // restore: featuredTracks.length > 0 && !search && !activeTag
+  const showFeatured = false
 
   // Register a resolver so App's audio onEnded can auto-advance to the next
   // VISIBLE track, in the order currently displayed (respects search/tag
