@@ -1713,8 +1713,7 @@ function InsightsManager({ tracks, clients, onToast }) {
 function Stat({ label, value }) {
   return (
     <div style={{background:T.bg1, border:`1px solid ${T.border}`, borderRadius:6, padding:'16px 18px'}}>
-      <div style={{fontSize:28, fontWeight:600, fontFamily:'Space Grotesk,sans-serif',
-        background:`linear-gradient(135deg, ${T.amber}, ${T.cyan})`, WebkitBackgroundClip:'text', backgroundClip:'text', WebkitTextFillColor:'transparent'}}>
+      <div style={{fontSize:40, fontWeight:300, fontFamily:'Fraunces,serif', letterSpacing:'-0.02em', color:T.textPrimary}}>
         {value}
       </div>
       <div style={{fontFamily:'Space Mono,monospace', fontSize:11, color:T.textMuted, textTransform:'uppercase', letterSpacing:'0.08em', marginTop:2}}>{label}</div>
