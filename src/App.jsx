@@ -534,7 +534,7 @@ export default function App() {
       />
       <div className="portal">
         <div className="topbar">
-          <div className="topbar-brand"><div className="topbar-brand-dot" />CYPHER CACHE</div>
+          <div className="topbar-brand"><div className="topbar-brand-dot" />Cypher Cache</div>
           <div className="topbar-right">
             {clientRow && (
               <>
