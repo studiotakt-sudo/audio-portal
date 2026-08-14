@@ -220,7 +220,9 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
         <button className={`tab ${tab === 'composers' ? 'active' : ''}`} onClick={() => setTab('composers')}>🎼 Composers</button>
         <button className={`tab ${tab === 'insights' ? 'active' : ''}`} onClick={() => setTab('insights')}>📊 Insights</button>
         <button className={`tab ${tab === 'admins' ? 'active' : ''}`} onClick={() => setTab('admins')}>🔑 Admins</button>
-        <button className={`tab ${tab === 'theme' ? 'active' : ''}`} onClick={() => setTab('theme')}>🎨 Theme</button>
+        {/* Theme tab hidden so the look can't be changed by accident.
+            Uncomment to restore access to the theme editor. */}
+        {/* <button className={`tab ${tab === 'theme' ? 'active' : ''}`} onClick={() => setTab('theme')}>🎨 Theme</button> */}
       </div>
       {tab === 'tracks' && <TrackManager tracks={tracks} clients={clients} composers={composers} onRefresh={fetchAll} onPlay={onPlay} playerProps={playerProps} onToast={onToast} />}
       {tab === 'clients' && <ClientManager clients={clients} tracks={tracks} onRefresh={fetchAll} onToast={onToast} />}
