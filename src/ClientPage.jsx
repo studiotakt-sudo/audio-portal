@@ -150,8 +150,8 @@ const TrackRowBase = memo(function TrackRowBase({
             </div>
           )}
 
-          {/* Tags */}
-          {track.tags?.length > 0 && (
+          {/* Per-track tag chips hidden for now — set guard to true to restore */}
+          {false && track.tags?.length > 0 && (
             <div style={{display:'flex', gap:4, overflow:'hidden', flexWrap:'nowrap'}}>
               {track.tags.map(tag => <span key={tag} className="tag-inline" style={{flexShrink:0}}>#{tag}</span>)}
             </div>
@@ -344,7 +344,9 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
             </div>
           )}
 
-          {/* Search */}
+          {/* Search + tag filters hidden for now — set the guard to true to
+              restore once track organization is figured out. */}
+          {false && (
           <div className="search-bar">
             <div className="search-input-wrap">
               <span className="search-icon">⌕</span>
@@ -352,8 +354,9 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
                 value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
+          )}
 
-          {allTags.length > 0 && (
+          {false && allTags.length > 0 && (
             <div className="tag-filters">
               <span className="tag-filter-label">Filter:</span>
               {allTags.map(tag => (
@@ -364,12 +367,12 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
           )}
 
           <div className="section-header">
-            {filtered.length} of {tracks.length} tracks{activeTag && ` · #${activeTag}`}
+            {tracks.length} track{tracks.length!==1?'s':''}
           </div>
 
           <div className="track-list" style={{paddingBottom:32}}>
             {filtered.length === 0
-              ? <div className="empty-state" style={{padding:40}}><div style={{fontSize:28, marginBottom:8}}>🔍</div>No tracks match your search</div>
+              ? <div className="empty-state" style={{padding:40}}><div style={{fontSize:28, marginBottom:8}}>♪</div>No tracks available yet</div>
               : filtered.map((track, i) => {
                   const isActive = isTrackActive(track, undefined)
                   const activeVersionIdx =
