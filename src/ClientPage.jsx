@@ -217,7 +217,7 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
   const [composerMap, setComposerMap] = useState({})  // id -> name
   const [loading, setLoading]       = useState(true)
   const [search, setSearch]         = useState('')
-  const [activeTag, setActiveTag]   = useState(null)
+  const [activeTags, setActiveTags] = useState([])   // multi-select tag filter (OR)
   const [expandedId, setExpandedId] = useState(null)
 
   const { currentTrack, isPlaying, progress, duration, onTogglePlay, onSeek, theme, loadingTrackId, preloadUrls } = playerProps
@@ -285,9 +285,11 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
     currentTrack?.id === track.id && currentTrack?.versionIdx === versionIdx
 
   const allTags = [...new Set(tracks.flatMap(t => t.tags || []))].sort()
+  const toggleTag = (tag) => setActiveTags(cur => cur.includes(tag) ? cur.filter(x => x !== tag) : [...cur, tag])
   const filtered = tracks.filter(t => {
     const matchSearch = !search || t.title.toLowerCase().includes(search.toLowerCase()) || t.tags?.some(tag => tag.includes(search.toLowerCase()))
-    const matchTag = !activeTag || t.tags?.includes(activeTag)
+    // OR semantics: a track matches if it has ANY of the selected tags.
+    const matchTag = activeTags.length === 0 || t.tags?.some(tag => activeTags.includes(tag))
     return matchSearch && matchTag
   })
   const featuredTracks = tracks.filter(t => t.featured)
@@ -344,8 +346,7 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
             </div>
           )}
 
-          {/* Search + tag filters hidden for now — set the guard to true to
-              restore once track organization is figured out. */}
+          {/* Search bar hidden for now — set guard to true to restore. */}
           {false && (
           <div className="search-bar">
             <div className="search-input-wrap">
@@ -356,23 +357,34 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
           </div>
           )}
 
-          {false && allTags.length > 0 && (
-            <div className="tag-filters">
-              <span className="tag-filter-label">Filter:</span>
+          {/* Tag browser — multi-select pills (OR). Client taps tags to build a
+              filter; tap again to remove. "All" clears the selection. */}
+          {allTags.length > 0 && (
+            <div className="tag-browser">
+              <button
+                className={`tag-pill ${activeTags.length === 0 ? 'active' : ''}`}
+                onClick={() => setActiveTags([])}>
+                All
+              </button>
               {allTags.map(tag => (
-                <button key={tag} className={`tag-filter ${activeTag===tag?'active':''}`}
-                  onClick={() => setActiveTag(activeTag===tag?null:tag)}>#{tag}</button>
+                <button key={tag}
+                  className={`tag-pill ${activeTags.includes(tag) ? 'active' : ''}`}
+                  onClick={() => toggleTag(tag)}>
+                  {tag}
+                </button>
               ))}
             </div>
           )}
 
           <div className="section-header">
-            {tracks.length} track{tracks.length!==1?'s':''}
+            {activeTags.length > 0
+              ? `${filtered.length} of ${tracks.length} tracks`
+              : `${tracks.length} track${tracks.length!==1?'s':''}`}
           </div>
 
           <div className="track-list" style={{paddingBottom:32}}>
             {filtered.length === 0
-              ? <div className="empty-state" style={{padding:40}}><div style={{fontSize:28, marginBottom:8}}>♪</div>No tracks available yet</div>
+              ? <div className="empty-state" style={{padding:40}}><div style={{fontSize:28, marginBottom:8}}>♪</div>{activeTags.length > 0 ? 'No tracks match these tags' : 'No tracks available yet'}</div>
               : filtered.map((track, i) => {
                   const isActive = isTrackActive(track, undefined)
                   const activeVersionIdx =

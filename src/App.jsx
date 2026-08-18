@@ -113,6 +113,12 @@ export function buildCss(t) {
   .tag-filter:hover { border-color: ${cyan}; color: ${cyan}; }
   .tag-filter.active { background: ${t.bg0}; border-color: ${coral}; color: ${coral}; }
   .tag-filter-label { font-size: 11px; color: ${t.textMuted}; align-self: center; font-family: 'Space Mono', monospace; white-space: nowrap; }
+  /* Client-facing tag browser — multi-select pills, editorial mono. Active =
+     filled white with black text (accent-free "on" state). */
+  .tag-browser { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 32px; }
+  .tag-pill { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 400; letter-spacing: -0.01em; padding: 10px 20px; border-radius: 3px; cursor: pointer; border: 1px solid ${t.border}; background: transparent; color: ${t.textSecondary}; transition: all 0.15s; }
+  .tag-pill:hover { border-color: ${t.textPrimary}; color: ${t.textPrimary}; }
+  .tag-pill.active { background: ${t.textPrimary}; border-color: ${t.textPrimary}; color: ${t.bg0}; font-weight: 500; }
   .track-list { display: flex; flex-direction: column; gap: 0; }
   .track-row { display: grid; grid-template-columns: 40px 1fr auto; gap: 24px; align-items: center; background: transparent; border: none; border-top: 1px solid ${t.border}; border-radius: 0; padding: 20px 4px; transition: background 0.15s; cursor: pointer; }
   .track-row:hover { border-color: ${t.border}; }
