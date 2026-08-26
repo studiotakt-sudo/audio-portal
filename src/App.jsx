@@ -88,6 +88,9 @@ export function buildCss(t) {
   .input:focus { outline: none; border-color: ${t.amber}; } .input::placeholder { color: ${t.textMuted}; }
   .input-error { border-color: ${t.red} !important; }
   .error-msg { font-size: 12px; color: ${t.red}; margin-top: 8px; }
+  .notice-msg { font-size: 13px; color: ${t.textSecondary}; margin-top: 12px; line-height: 1.5; padding: 12px; border: 1px solid ${t.border}; border-radius: 3px; background: ${t.bg1}; }
+  .login-switch { margin-top: 20px; font-size: 13px; color: ${t.textMuted}; text-align: center; }
+  .link-btn { background: none; border: none; color: ${t.textPrimary}; cursor: pointer; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; padding: 0; font-family: inherit; }
   .main { flex: 1; padding: 32px; max-width: 1200px; margin: 0 auto; width: 100%; }
   .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
   .page-title { font-family: 'Fraunces', serif; font-size: 44px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.05; } .page-subtitle { font-family: 'Space Mono', monospace; font-size: 12px; color: ${t.textSecondary}; margin-top: 10px; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -259,6 +262,25 @@ export function InlineSeekbar({ peaks, progress, duration, onSeek, accentColor, 
           background: cyanColor || '#ffffff'
         }} />
       )}
+    </div>
+  )
+}
+
+// ─── Pending approval screen ──────────────────────────────────────
+// Shown to a signed-in client whose account exists but hasn't been approved
+// by the studio yet. They can see nothing else (RLS enforces this too).
+function PendingApproval({ name, onSignOut }) {
+  return (
+    <div className="login-wrap">
+      <div className="login-card" style={{ textAlign: 'center' }}>
+        <div className="login-eyebrow">Private Portal</div>
+        <div className="login-title" style={{ marginBottom: 16 }}>Thanks{name ? `, ${name}` : ''} — you're on the list</div>
+        <p style={{ color: '#8a8a8a', fontSize: 14, lineHeight: 1.6, marginBottom: 28 }}>
+          Your account is confirmed and waiting for the studio to grant access.
+          You'll be able to browse the library as soon as you're approved.
+        </p>
+        <button className="btn btn-ghost" style={{ width: '100%' }} onClick={onSignOut}>Sign out</button>
+      </div>
     </div>
   )
 }
@@ -556,7 +578,9 @@ export default function App() {
           ? <LoginPage onLogin={handleLogin} onToast={showToast} />
           : clientRow.role === 'admin'
             ? <AdminPage clientRow={clientRow} onPlay={playTrack} playerProps={playerProps} onToast={showToast} theme={theme} onThemeChange={setTheme} />
-            : <ClientPage clientRow={clientRow} onPlay={playTrack} playerProps={playerProps} onToast={showToast} registerNextResolver={fn => { nextTrackResolverRef.current = fn }} />
+            : clientRow.approved === false
+              ? <PendingApproval name={clientRow.name} onSignOut={handleSignOut} />
+              : <ClientPage clientRow={clientRow} onPlay={playTrack} playerProps={playerProps} onToast={showToast} registerNextResolver={fn => { nextTrackResolverRef.current = fn }} />
         }
       </div>
 

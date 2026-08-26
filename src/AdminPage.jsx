@@ -1391,9 +1391,27 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
   const [notesId, setNotesId]       = useState(null)
   const [dlId, setDlId]             = useState(null)   // which client's downloads are open
   const [notesDraft, setNotesDraft] = useState('')
-  const clientList = clients.filter(c => c.role === 'client')
+  const clientList = clients.filter(c => c.role === 'client' && c.approved !== false)
+  const pendingList = clients.filter(c => c.role === 'client' && c.approved === false)
 
   const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
+
+  const approveClient = async (c) => {
+    const { error } = await supabase.from('clients').update({ approved: true }).eq('id', c.id)
+    if (error) { onToast('Could not approve: ' + error.message, 'error'); return }
+    await onRefresh(); onToast(`${c.name || c.email} approved`)
+  }
+
+  const rejectClient = async (c) => {
+    if (!confirm(`Reject and remove ${c.name || c.email}? This deletes their pending account.`)) return
+    // Remove via the admin edge function so the auth user is cleaned up too.
+    const { error: fnError } = await adminAction({ action: 'delete_user', client_id: c.id })
+    if (fnError) {
+      // Fall back to deleting just the profile row if the function path fails.
+      await supabase.from('clients').delete().eq('id', c.id)
+    }
+    await onRefresh(); onToast('Signup rejected')
+  }
 
   const addClient = async () => {
     setError('')
@@ -1480,6 +1498,27 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
         </div>
         {error && <div className="error-msg" style={{marginTop:8}}>{error}</div>}
       </div>
+
+      {pendingList.length > 0 && (
+        <div style={{border:`1px solid ${T.textPrimary}`, borderRadius:6, padding:16, marginBottom:24}}>
+          <div className="upload-form-title" style={{marginBottom:12}}>
+            {pendingList.length} pending signup{pendingList.length!==1?'s':''} — awaiting your approval
+          </div>
+          {pendingList.map(c => (
+            <div key={c.id} className="client-card" style={{alignItems:'center'}}>
+              <div style={{minWidth:0}}>
+                <div className="client-name">{c.name || '(no name)'}</div>
+                <div className="client-meta">{c.email} · signed up {c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</div>
+              </div>
+              <div style={{display:'flex', gap:8}}>
+                <button className="btn btn-primary btn-sm" onClick={() => approveClient(c)}>Approve</button>
+                <button className="btn btn-danger btn-sm" onClick={() => rejectClient(c)}>Reject</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="section-header" style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
         <span>{clientList.length} client{clientList.length !== 1 ? 's' : ''}</span>
         <button className="btn btn-ghost btn-sm" onClick={copyAllEmails} disabled={clientList.length === 0}>
