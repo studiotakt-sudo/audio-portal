@@ -245,7 +245,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
   const [dragOver, setDragOver]       = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
   const [extracting, setExtracting]   = useState(false)
-  const [form, setForm]               = useState({ title:'', tags:[], tagInput:'', assignedTo:[], bpm:'', composer_id:'' })
+  const [form, setForm]               = useState({ title:'', tags:[], tagInput:'', bpm:'', composer_id:'' })
   const [uploading, setUploading]     = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [search, setSearch]           = useState('')
@@ -367,9 +367,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     setForm(f => ({ ...f, tags:[...f.tags, t], tagInput:'' }))
   }
   const removeTag = tag => setForm(f => ({ ...f, tags: f.tags.filter(x => x !== tag) }))
-  const toggleClient = id => setForm(f => ({
-    ...f, assignedTo: f.assignedTo.includes(id) ? f.assignedTo.filter(x => x !== id) : [...f.assignedTo, id]
-  }))
 
   // ── Upload ───────────────────────────────────────────────────
   const uploadTrack = async () => {
@@ -393,9 +390,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
       bpm: form.bpm ? parseInt(form.bpm) : null,
       tags: form.tags,
       composer_id: form.composer_id || null,
-      // Empty assigned_to means "visible to all clients" (current and future).
-      // Only populate it to RESTRICT a track to specific clients.
-      assigned_to: form.assignedTo,
       versions: [],
       sort_order: nextOrder,
       featured: false,
@@ -408,7 +402,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     setUploadProgress(100)
     await onRefresh()
     setPendingFile(null)
-    setForm({ title:'', tags:[], tagInput:'', assignedTo:[], bpm:'', composer_id:'' })
+    setForm({ title:'', tags:[], tagInput:'', bpm:'', composer_id:'' })
     setUploading(false)
     onToast('Track uploaded successfully')
   }
@@ -444,7 +438,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
           duration: duration || null,
           waveform_peaks: waveformPeaks || [],
           tags: [],
-          assigned_to: [],          // visible to all (once published)
           versions: [],
           sort_order: nextOrder++,
           featured: false,
@@ -578,7 +571,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
       title: track.title,
       tags: [...(track.tags || [])],
       tagInput: '',
-      assignedTo: [...(track.assigned_to || [])],
       versions: [...(track.versions || [])],
       featured_image: track.featured_image || null,
       bpm: track.bpm || '',
@@ -593,9 +585,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     setEditState(s => ({ ...s, tags:[...s.tags, t], tagInput:'' }))
   }
   const editRemoveTag = tag => setEditState(s => ({ ...s, tags: s.tags.filter(x => x !== tag) }))
-  const editToggleClient = id => setEditState(s => ({
-    ...s, assignedTo: s.assignedTo.includes(id) ? s.assignedTo.filter(x => x !== id) : [...s.assignedTo, id]
-  }))
 
   const uploadVersion = async () => {
     if (!versionFile || !versionLabel.trim()) return
@@ -631,7 +620,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     const { error } = await supabase.from('tracks').update({
       title: editState.title,
       tags: editState.tags,
-      assigned_to: editState.assignedTo,
       versions: editState.versions,
       featured_image: featuredImagePath,
       bpm: editState.bpm ? parseInt(editState.bpm) : null,
@@ -762,18 +750,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                 {composers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <div className="field">
-              <label className="label">Restrict to clients <span style={{color:T.textMuted, fontWeight:400}}>(optional — leave empty for all)</span></label>
-              <div style={{display:'flex', flexWrap:'wrap', gap:6, marginTop:4}}>
-                {clientList.length === 0
-                  ? <span style={{fontSize:12, color:T.textMuted}}>No clients yet — visible to all</span>
-                  : clientList.map(c => (
-                    <button key={c.id} className={`tag-filter ${form.assignedTo.includes(c.id) ? 'active' : ''}`}
-                      onClick={() => toggleClient(c.id)}>{c.name}</button>
-                  ))
-                }
-              </div>
-            </div>
           </div>
           <div className="field">
             <label className="label">Tags</label>
@@ -871,7 +847,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
             {filtered.map((track, i) => {
               const isEditing  = editingId === track.id
               const isExpanded = expandedId === track.id
-              const assignedNames = clients.filter(c => track.assigned_to?.includes(c.id)).map(c => c.name)
               const versions = track.versions || []
               const isFeatured = track.featured
 
@@ -913,7 +888,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                         )}
                       </div>
                       <div style={{fontSize:11, color:T.textMuted}}>
-                        {assignedNames.length ? `→ ${assignedNames.join(', ')}` : '→ All clients'}
+                        {(() => { const cm = composers.find(c => c.id === track.composer_id); return cm ? `→ ${cm.name}` : '' })()}
                       </div>
                       {/* Inactive: static waveform */}
                       {!(currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined) && track.waveform_peaks?.length > 0 && (
@@ -987,28 +962,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                           <input className="input" value={editState.title}
                             onChange={e => setEditState(s => ({...s, title:e.target.value}))} />
                         </div>
-                        <div style={{display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'end'}}>
-                          <div>
-                            <div className="track-edit-label">Client access</div>
-                          <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
-                            {clientList.length === 0
-                              ? <span style={{fontSize:12, color:T.textMuted}}>No clients yet</span>
-                              : clientList.map(c => (
-                                <button key={c.id} className={`tag-filter ${editState.assignedTo.includes(c.id)?'active':''}`}
-                                  onClick={() => editToggleClient(c.id)}>{c.name}</button>
-                              ))
-                            }
-                            {clientList.length > 0 && (
-                              <button className="tag-filter" style={{borderStyle:'dashed', fontSize:10}}
-                                onClick={() => setEditState(s => ({...s, assignedTo: s.assignedTo.length===clientList.length?[]:clientList.map(c=>c.id)}))}>
-                                {editState.assignedTo.length===clientList.length?'Deselect all':'Select all'}
-                              </button>
-                            )}
-                          </div>
-                          {clientList.length>0 && editState.assignedTo.length===0 && (
-                            <div style={{fontSize:11, color:T.cyan, marginTop:6, fontFamily:'Space Mono,monospace'}}>✓ Visible to all clients — select names to restrict</div>
-                          )}
-                          </div>
+                        <div style={{display:'flex', gap:12, alignItems:'end'}}>
                           <div>
                             <div className="track-edit-label">BPM</div>
                             <input className="input" type="number" placeholder="120" min="1" max="300" style={{width:80}}
@@ -1430,9 +1384,6 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
     })
     if (fnError) { setError('Could not add client: ' + fnError); setLoading(false); return }
 
-    // No track assignment needed: tracks with an empty assigned_to are visible
-    // to every client (including this new one) and any tracks added later.
-    // assigned_to is now used ONLY to restrict a track to specific clients.
     await onRefresh()
     setForm({ name:'', email:'', password:'' })
     setLoading(false)
