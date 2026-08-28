@@ -220,6 +220,7 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
         <button className={`tab ${tab === 'composers' ? 'active' : ''}`} onClick={() => setTab('composers')}>🎼 Composers</button>
         <button className={`tab ${tab === 'insights' ? 'active' : ''}`} onClick={() => setTab('insights')}>📊 Insights</button>
         <button className={`tab ${tab === 'admins' ? 'active' : ''}`} onClick={() => setTab('admins')}>🔑 Admins</button>
+        <button className={`tab ${tab === 'invites' ? 'active' : ''}`} onClick={() => setTab('invites')}>✉ Invites</button>
         {/* Theme tab hidden so the look can't be changed by accident.
             Uncomment to restore access to the theme editor. */}
         {/* <button className={`tab ${tab === 'theme' ? 'active' : ''}`} onClick={() => setTab('theme')}>🎨 Theme</button> */}
@@ -229,6 +230,7 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
       {tab === 'composers' && <ComposerManager composers={composers} tracks={tracks} onRefresh={fetchAll} onToast={onToast} />}
       {tab === 'insights' && <InsightsManager tracks={tracks} clients={clients} onToast={onToast} />}
       {tab === 'admins' && <AdminManager clients={clients} currentAdmin={clientRow} onRefresh={fetchAll} onToast={onToast} />}
+      {tab === 'invites' && <InviteManager onToast={onToast} />}
       {tab === 'theme' && <ThemeManager theme={theme} onThemeChange={onThemeChange} onToast={onToast} />}
     </div>
   )
@@ -1508,7 +1510,7 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
             <div key={c.id} className="client-card" style={{alignItems:'center'}}>
               <div style={{minWidth:0}}>
                 <div className="client-name">{c.name || '(no name)'}</div>
-                <div className="client-meta">{c.email} · signed up {c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</div>
+                <div className="client-meta">{c.email}{c.company ? ` · ${c.company}` : ''} · signed up {c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</div>
               </div>
               <div style={{display:'flex', gap:8}}>
                 <button className="btn btn-primary btn-sm" onClick={() => approveClient(c)}>Approve</button>
@@ -1758,6 +1760,116 @@ function Stat({ label, value }) {
         {value}
       </div>
       <div style={{fontFamily:'Space Mono,monospace', fontSize:11, color:T.textMuted, textTransform:'uppercase', letterSpacing:'0.08em', marginTop:2}}>{label}</div>
+    </div>
+  )
+}
+
+// ─── Invite Manager ───────────────────────────────────────────────
+// Create / expire the invite codes that gate /signup. The signup link is
+// {origin}/signup?code=CODE — sharing that lets an invited person sign up.
+function InviteManager({ onToast }) {
+  const [codes, setCodes]   = useState([])
+  const [loading, setLoading] = useState(true)
+  const [newCode, setNewCode] = useState('')
+  const [newLabel, setNewLabel] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+
+  const load = async () => {
+    setLoading(true)
+    const { data, error } = await supabase.from('signup_codes').select('*').order('created_at', { ascending: false })
+    if (error) onToast('Could not load codes: ' + error.message, 'error')
+    setCodes(data || [])
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  const genCode = () => {
+    // Readable random code, e.g. CYPHER-7K2Q
+    const s = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
+    setNewCode(`CYPHER-${s}`)
+  }
+
+  const createCode = async () => {
+    const code = newCode.trim()
+    if (!code) { onToast('Enter or generate a code first', 'error'); return }
+    setCreating(true)
+    const { error } = await supabase.from('signup_codes').insert({ code, label: newLabel.trim() })
+    setCreating(false)
+    if (error) { onToast(error.message.includes('duplicate') ? 'That code already exists' : error.message, 'error'); return }
+    setNewCode(''); setNewLabel('')
+    await load(); onToast('Invite code created')
+  }
+
+  const toggleActive = async (c) => {
+    const { error } = await supabase.from('signup_codes').update({ active: !c.active }).eq('id', c.id)
+    if (error) { onToast(error.message, 'error'); return }
+    await load()
+  }
+
+  const deleteCode = async (c) => {
+    if (!confirm(`Delete code "${c.code}"? Anyone with its link can no longer sign up.`)) return
+    const { error } = await supabase.from('signup_codes').delete().eq('id', c.id)
+    if (error) { onToast(error.message, 'error'); return }
+    await load(); onToast('Code deleted')
+  }
+
+  const copyLink = (c) => {
+    const link = `${origin}/signup?code=${encodeURIComponent(c.code)}`
+    navigator.clipboard?.writeText(link).then(
+      () => onToast('Invite link copied'),
+      () => onToast('Copy failed — link: ' + link, 'error')
+    )
+  }
+
+  const isExpired = (c) => c.expires_at && new Date(c.expires_at) < new Date()
+
+  return (
+    <div>
+      <div className="upload-form" style={{marginBottom:24}}>
+        <div className="upload-form-title" style={{marginBottom:12}}>Create an invite code</div>
+        <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'flex-end'}}>
+          <div className="field" style={{flex:'1 1 160px', margin:0}}>
+            <label className="label">Code</label>
+            <input className="input" placeholder="CYPHER-XXXX" value={newCode}
+              onChange={e => setNewCode(e.target.value.toUpperCase())} />
+          </div>
+          <div className="field" style={{flex:'2 1 200px', margin:0}}>
+            <label className="label">Label (who it's for — optional)</label>
+            <input className="input" placeholder="e.g. Nike, Oct 2026" value={newLabel}
+              onChange={e => setNewLabel(e.target.value)} />
+          </div>
+          <button className="btn btn-ghost" onClick={genCode}>Generate</button>
+          <button className="btn btn-primary" onClick={createCode} disabled={creating}>
+            {creating ? 'Creating…' : 'Create'}
+          </button>
+        </div>
+      </div>
+
+      <div className="section-header">{codes.length} code{codes.length!==1?'s':''}</div>
+
+      {loading
+        ? <div className="empty-state"><span className="spinner" /> Loading…</div>
+        : codes.length === 0
+          ? <div className="empty-state"><div className="empty-icon">✉</div>No invite codes yet</div>
+          : codes.map(c => (
+            <div key={c.id} className="client-card" style={{alignItems:'center', opacity: (c.active && !isExpired(c)) ? 1 : 0.5}}>
+              <div style={{minWidth:0}}>
+                <div className="client-name" style={{fontFamily:"'Space Mono',monospace"}}>{c.code}</div>
+                <div className="client-meta">
+                  {c.label || 'no label'}
+                  {' · '}{c.active ? (isExpired(c) ? 'expired' : 'active') : 'disabled'}
+                </div>
+              </div>
+              <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                <button className="btn btn-ghost btn-sm" onClick={() => copyLink(c)}>Copy link</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => toggleActive(c)}>{c.active ? 'Disable' : 'Enable'}</button>
+                <button className="btn btn-danger btn-sm" onClick={() => deleteCode(c)}>Delete</button>
+              </div>
+            </div>
+          ))
+      }
     </div>
   )
 }

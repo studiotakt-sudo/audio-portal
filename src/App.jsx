@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase, CLIENT_SELF_COLS } from './supabase'
 import LoginPage from './LoginPage'
+import SignupPage from './SignupPage'
 import AdminPage from './AdminPage'
 import ClientPage from './ClientPage'
 
@@ -289,6 +290,10 @@ function PendingApproval({ name, onSignOut }) {
 export default function App() {
   const [clientRow, setClientRow]       = useState(null)
   const [loading, setLoading]           = useState(true)
+  // Lightweight routing: /signup shows the invite signup screen (no router lib).
+  const [isSignupRoute] = useState(() =>
+    typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '') === '/signup'
+  )
   const [toast, setToast]               = useState(null)
   const [theme, setTheme]               = useState(DEFAULT_THEME)
   const [currentTrack, setCurrentTrack] = useState(null)
@@ -575,7 +580,9 @@ export default function App() {
         </div>
 
         {!clientRow
-          ? <LoginPage onLogin={handleLogin} onToast={showToast} />
+          ? (isSignupRoute
+              ? <SignupPage onToast={showToast} />
+              : <LoginPage onLogin={handleLogin} onToast={showToast} />)
           : clientRow.role === 'admin'
             ? <AdminPage clientRow={clientRow} onPlay={playTrack} playerProps={playerProps} onToast={showToast} theme={theme} onThemeChange={setTheme} />
             : clientRow.approved === false
