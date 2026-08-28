@@ -268,8 +268,8 @@ export function InlineSeekbar({ peaks, progress, duration, onSeek, accentColor, 
 }
 
 // ─── Pending approval screen ──────────────────────────────────────
-// Shown to a signed-in client whose account exists but hasn't been approved
-// by the studio yet. They can see nothing else (RLS enforces this too).
+// Shown to a signed-in client whose account exists but isn't approved yet.
+// They see nothing else (RLS enforces this too).
 function PendingApproval({ name, onSignOut }) {
   return (
     <div className="login-wrap">

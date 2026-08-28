@@ -12,19 +12,20 @@ export default function LoginPage({ onLogin, onToast }) {
     if (!email.trim() || !password) { setError('Please enter your email and password'); return }
     setLoading(true)
 
+    // Real authentication: bcrypt verification happens server-side in
+    // Supabase Auth. No hashes ever reach (or leave) the browser.
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
       password,
     })
     if (authError || !authData?.user) {
-      if (authError?.message?.toLowerCase().includes('confirm')) {
-        setError('Please confirm your email first — check your inbox for the link.')
-      } else {
-        setError('Incorrect email or password')
-      }
+      // One message for both wrong-email and wrong-password — no account
+      // enumeration from the login form.
+      setError('Incorrect email or password')
       setLoading(false); return
     }
 
+    // Fetch this user's portal profile (RLS: own row only for clients).
     const { data: row, error: rowError } = await supabase
       .from('clients')
       .select(CLIENT_SELF_COLS)

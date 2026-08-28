@@ -2,20 +2,19 @@ import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 
 // Invite-only signup, reached at /signup?code=XXXX. The code is validated
-// against signup_codes via the check_signup_code() RPC (which runs as definer,
-// so the anon key never reads the codes table directly).
+// against signup_codes via the check_signup_code() RPC (definer-run, so the
+// anon key never reads the codes table directly).
 export default function SignupPage({ onToast }) {
-  const [code, setCode]         = useState('')
-  const [codeState, setCodeState] = useState('checking') // checking | valid | invalid | missing
-  const [name, setName]         = useState('')
-  const [company, setCompany]   = useState('')
-  const [email, setEmail]       = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError]       = useState('')
-  const [done, setDone]         = useState(false)
-  const [loading, setLoading]   = useState(false)
+  const [code, setCode]           = useState('')
+  const [codeState, setCodeState] = useState('checking') // checking|valid|invalid|missing
+  const [name, setName]           = useState('')
+  const [company, setCompany]     = useState('')
+  const [email, setEmail]         = useState('')
+  const [password, setPassword]   = useState('')
+  const [error, setError]         = useState('')
+  const [done, setDone]           = useState(false)
+  const [loading, setLoading]     = useState(false)
 
-  // Read + validate the code from the URL on load.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const c = (params.get('code') || '').trim()
@@ -39,7 +38,6 @@ export default function SignupPage({ onToast }) {
     if (password.length < 8) { setError('Password must be at least 8 characters'); return }
     setLoading(true)
 
-    // Re-check the code at submit time (it may have been expired since load).
     const { data: stillValid } = await supabase.rpc('check_signup_code', { p_code: code })
     if (stillValid !== true) {
       setError('This invite code is no longer valid. Contact the studio for a new link.')
@@ -59,10 +57,6 @@ export default function SignupPage({ onToast }) {
       setLoading(false); return
     }
 
-    // Create the pending clients row now. If email confirmation is on there is
-    // no session yet, so this insert may be blocked by RLS until they confirm;
-    // in that case the row is created on first sign-in instead. We attempt it
-    // here and ignore an RLS failure silently — the LoginPage fallback covers it.
     if (data?.user) {
       await supabase.from('clients').insert({
         user_id: data.user.id,
@@ -78,7 +72,6 @@ export default function SignupPage({ onToast }) {
     setLoading(false)
   }
 
-  // ── States ──────────────────────────────────────────────────────
   if (codeState === 'checking') {
     return (
       <div className="login-wrap"><div className="login-card" style={{textAlign:'center'}}>
@@ -114,7 +107,6 @@ export default function SignupPage({ onToast }) {
     )
   }
 
-  // ── Valid code: show the form ───────────────────────────────────
   return (
     <div className="login-wrap">
       <div className="login-card">
@@ -124,22 +116,19 @@ export default function SignupPage({ onToast }) {
         <div className="field">
           <label className="label">Name</label>
           <input type="text" className="input" placeholder="Your name"
-            value={name} autoComplete="name"
-            onChange={e => setName(e.target.value)} />
+            value={name} autoComplete="name" onChange={e => setName(e.target.value)} />
         </div>
 
         <div className="field">
           <label className="label">Company</label>
           <input type="text" className="input" placeholder="Where you work"
-            value={company} autoComplete="organization"
-            onChange={e => setCompany(e.target.value)} />
+            value={company} autoComplete="organization" onChange={e => setCompany(e.target.value)} />
         </div>
 
         <div className="field">
           <label className="label">Email</label>
           <input type="email" className="input" placeholder="you@example.com"
-            value={email} autoComplete="email"
-            onChange={e => setEmail(e.target.value)} />
+            value={email} autoComplete="email" onChange={e => setEmail(e.target.value)} />
         </div>
 
         <div className="field">

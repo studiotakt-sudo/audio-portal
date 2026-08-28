@@ -1406,12 +1406,8 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
 
   const rejectClient = async (c) => {
     if (!confirm(`Reject and remove ${c.name || c.email}? This deletes their pending account.`)) return
-    // Remove via the admin edge function so the auth user is cleaned up too.
     const { error: fnError } = await adminAction({ action: 'delete_user', client_id: c.id })
-    if (fnError) {
-      // Fall back to deleting just the profile row if the function path fails.
-      await supabase.from('clients').delete().eq('id', c.id)
-    }
+    if (fnError) { await supabase.from('clients').delete().eq('id', c.id) }
     await onRefresh(); onToast('Signup rejected')
   }
 
@@ -1766,11 +1762,11 @@ function Stat({ label, value }) {
 
 // ─── Invite Manager ───────────────────────────────────────────────
 // Create / expire the invite codes that gate /signup. The signup link is
-// {origin}/signup?code=CODE — sharing that lets an invited person sign up.
+// {origin}/signup?code=CODE.
 function InviteManager({ onToast }) {
-  const [codes, setCodes]   = useState([])
-  const [loading, setLoading] = useState(true)
-  const [newCode, setNewCode] = useState('')
+  const [codes, setCodes]       = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [newCode, setNewCode]   = useState('')
   const [newLabel, setNewLabel] = useState('')
   const [creating, setCreating] = useState(false)
 
@@ -1786,7 +1782,6 @@ function InviteManager({ onToast }) {
   useEffect(() => { load() }, [])
 
   const genCode = () => {
-    // Readable random code, e.g. CYPHER-7K2Q
     const s = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
     setNewCode(`CYPHER-${s}`)
   }
@@ -1858,8 +1853,7 @@ function InviteManager({ onToast }) {
               <div style={{minWidth:0}}>
                 <div className="client-name" style={{fontFamily:"'Space Mono',monospace"}}>{c.code}</div>
                 <div className="client-meta">
-                  {c.label || 'no label'}
-                  {' · '}{c.active ? (isExpired(c) ? 'expired' : 'active') : 'disabled'}
+                  {c.label || 'no label'}{' · '}{c.active ? (isExpired(c) ? 'expired' : 'active') : 'disabled'}
                 </div>
               </div>
               <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
