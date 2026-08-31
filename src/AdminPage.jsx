@@ -220,6 +220,7 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
         <button className={`tab ${tab === 'composers' ? 'active' : ''}`} onClick={() => setTab('composers')}>🎼 Composers</button>
         <button className={`tab ${tab === 'insights' ? 'active' : ''}`} onClick={() => setTab('insights')}>📊 Insights</button>
         <button className={`tab ${tab === 'admins' ? 'active' : ''}`} onClick={() => setTab('admins')}>🔑 Admins</button>
+        <button className={`tab ${tab === 'invites' ? 'active' : ''}`} onClick={() => setTab('invites')}>✉ Invites</button>
         {/* Theme tab hidden so the look can't be changed by accident.
             Uncomment to restore access to the theme editor. */}
         {/* <button className={`tab ${tab === 'theme' ? 'active' : ''}`} onClick={() => setTab('theme')}>🎨 Theme</button> */}
@@ -229,6 +230,7 @@ export default function AdminPage({ clientRow, onPlay, playerProps, onToast, the
       {tab === 'composers' && <ComposerManager composers={composers} tracks={tracks} onRefresh={fetchAll} onToast={onToast} />}
       {tab === 'insights' && <InsightsManager tracks={tracks} clients={clients} onToast={onToast} />}
       {tab === 'admins' && <AdminManager clients={clients} currentAdmin={clientRow} onRefresh={fetchAll} onToast={onToast} />}
+      {tab === 'invites' && <InviteManager onToast={onToast} />}
       {tab === 'theme' && <ThemeManager theme={theme} onThemeChange={onThemeChange} onToast={onToast} />}
     </div>
   )
@@ -243,7 +245,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
   const [dragOver, setDragOver]       = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
   const [extracting, setExtracting]   = useState(false)
-  const [form, setForm]               = useState({ title:'', tags:[], tagInput:'', assignedTo:[], bpm:'', composer_id:'' })
+  const [form, setForm]               = useState({ title:'', tags:[], tagInput:'', bpm:'', composer_id:'' })
   const [uploading, setUploading]     = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [search, setSearch]           = useState('')
@@ -365,9 +367,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     setForm(f => ({ ...f, tags:[...f.tags, t], tagInput:'' }))
   }
   const removeTag = tag => setForm(f => ({ ...f, tags: f.tags.filter(x => x !== tag) }))
-  const toggleClient = id => setForm(f => ({
-    ...f, assignedTo: f.assignedTo.includes(id) ? f.assignedTo.filter(x => x !== id) : [...f.assignedTo, id]
-  }))
 
   // ── Upload ───────────────────────────────────────────────────
   const uploadTrack = async () => {
@@ -391,9 +390,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
       bpm: form.bpm ? parseInt(form.bpm) : null,
       tags: form.tags,
       composer_id: form.composer_id || null,
-      // Empty assigned_to means "visible to all clients" (current and future).
-      // Only populate it to RESTRICT a track to specific clients.
-      assigned_to: form.assignedTo,
       versions: [],
       sort_order: nextOrder,
       featured: false,
@@ -406,7 +402,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     setUploadProgress(100)
     await onRefresh()
     setPendingFile(null)
-    setForm({ title:'', tags:[], tagInput:'', assignedTo:[], bpm:'', composer_id:'' })
+    setForm({ title:'', tags:[], tagInput:'', bpm:'', composer_id:'' })
     setUploading(false)
     onToast('Track uploaded successfully')
   }
@@ -442,7 +438,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
           duration: duration || null,
           waveform_peaks: waveformPeaks || [],
           tags: [],
-          assigned_to: [],          // visible to all (once published)
           versions: [],
           sort_order: nextOrder++,
           featured: false,
@@ -576,7 +571,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
       title: track.title,
       tags: [...(track.tags || [])],
       tagInput: '',
-      assignedTo: [...(track.assigned_to || [])],
       versions: [...(track.versions || [])],
       featured_image: track.featured_image || null,
       bpm: track.bpm || '',
@@ -591,9 +585,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     setEditState(s => ({ ...s, tags:[...s.tags, t], tagInput:'' }))
   }
   const editRemoveTag = tag => setEditState(s => ({ ...s, tags: s.tags.filter(x => x !== tag) }))
-  const editToggleClient = id => setEditState(s => ({
-    ...s, assignedTo: s.assignedTo.includes(id) ? s.assignedTo.filter(x => x !== id) : [...s.assignedTo, id]
-  }))
 
   const uploadVersion = async () => {
     if (!versionFile || !versionLabel.trim()) return
@@ -629,7 +620,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     const { error } = await supabase.from('tracks').update({
       title: editState.title,
       tags: editState.tags,
-      assigned_to: editState.assignedTo,
       versions: editState.versions,
       featured_image: featuredImagePath,
       bpm: editState.bpm ? parseInt(editState.bpm) : null,
@@ -760,18 +750,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                 {composers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <div className="field">
-              <label className="label">Restrict to clients <span style={{color:T.textMuted, fontWeight:400}}>(optional — leave empty for all)</span></label>
-              <div style={{display:'flex', flexWrap:'wrap', gap:6, marginTop:4}}>
-                {clientList.length === 0
-                  ? <span style={{fontSize:12, color:T.textMuted}}>No clients yet — visible to all</span>
-                  : clientList.map(c => (
-                    <button key={c.id} className={`tag-filter ${form.assignedTo.includes(c.id) ? 'active' : ''}`}
-                      onClick={() => toggleClient(c.id)}>{c.name}</button>
-                  ))
-                }
-              </div>
-            </div>
           </div>
           <div className="field">
             <label className="label">Tags</label>
@@ -869,7 +847,6 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
             {filtered.map((track, i) => {
               const isEditing  = editingId === track.id
               const isExpanded = expandedId === track.id
-              const assignedNames = clients.filter(c => track.assigned_to?.includes(c.id)).map(c => c.name)
               const versions = track.versions || []
               const isFeatured = track.featured
 
@@ -911,7 +888,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                         )}
                       </div>
                       <div style={{fontSize:11, color:T.textMuted}}>
-                        {assignedNames.length ? `→ ${assignedNames.join(', ')}` : '→ All clients'}
+                        {(() => { const cm = composers.find(c => c.id === track.composer_id); return cm ? `→ ${cm.name}` : '' })()}
                       </div>
                       {/* Inactive: static waveform */}
                       {!(currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined) && track.waveform_peaks?.length > 0 && (
@@ -985,28 +962,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                           <input className="input" value={editState.title}
                             onChange={e => setEditState(s => ({...s, title:e.target.value}))} />
                         </div>
-                        <div style={{display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'end'}}>
-                          <div>
-                            <div className="track-edit-label">Client access</div>
-                          <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
-                            {clientList.length === 0
-                              ? <span style={{fontSize:12, color:T.textMuted}}>No clients yet</span>
-                              : clientList.map(c => (
-                                <button key={c.id} className={`tag-filter ${editState.assignedTo.includes(c.id)?'active':''}`}
-                                  onClick={() => editToggleClient(c.id)}>{c.name}</button>
-                              ))
-                            }
-                            {clientList.length > 0 && (
-                              <button className="tag-filter" style={{borderStyle:'dashed', fontSize:10}}
-                                onClick={() => setEditState(s => ({...s, assignedTo: s.assignedTo.length===clientList.length?[]:clientList.map(c=>c.id)}))}>
-                                {editState.assignedTo.length===clientList.length?'Deselect all':'Select all'}
-                              </button>
-                            )}
-                          </div>
-                          {clientList.length>0 && editState.assignedTo.length===0 && (
-                            <div style={{fontSize:11, color:T.cyan, marginTop:6, fontFamily:'Space Mono,monospace'}}>✓ Visible to all clients — select names to restrict</div>
-                          )}
-                          </div>
+                        <div style={{display:'flex', gap:12, alignItems:'end'}}>
                           <div>
                             <div className="track-edit-label">BPM</div>
                             <input className="input" type="number" placeholder="120" min="1" max="300" style={{width:80}}
@@ -1391,9 +1347,23 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
   const [notesId, setNotesId]       = useState(null)
   const [dlId, setDlId]             = useState(null)   // which client's downloads are open
   const [notesDraft, setNotesDraft] = useState('')
-  const clientList = clients.filter(c => c.role === 'client')
+  const clientList = clients.filter(c => c.role === 'client' && c.approved !== false)
+  const pendingList = clients.filter(c => c.role === 'client' && c.approved === false)
 
   const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
+
+  const approveClient = async (c) => {
+    const { error } = await supabase.from('clients').update({ approved: true }).eq('id', c.id)
+    if (error) { onToast('Could not approve: ' + error.message, 'error'); return }
+    await onRefresh(); onToast(`${c.name || c.email} approved`)
+  }
+
+  const rejectClient = async (c) => {
+    if (!confirm(`Reject and remove ${c.name || c.email}? This deletes their pending account.`)) return
+    const { error: fnError } = await adminAction({ action: 'delete_user', client_id: c.id })
+    if (fnError) { await supabase.from('clients').delete().eq('id', c.id) }
+    await onRefresh(); onToast('Signup rejected')
+  }
 
   const addClient = async () => {
     setError('')
@@ -1414,9 +1384,6 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
     })
     if (fnError) { setError('Could not add client: ' + fnError); setLoading(false); return }
 
-    // No track assignment needed: tracks with an empty assigned_to are visible
-    // to every client (including this new one) and any tracks added later.
-    // assigned_to is now used ONLY to restrict a track to specific clients.
     await onRefresh()
     setForm({ name:'', email:'', password:'' })
     setLoading(false)
@@ -1480,6 +1447,27 @@ function ClientManager({ clients, tracks, onRefresh, onToast }) {
         </div>
         {error && <div className="error-msg" style={{marginTop:8}}>{error}</div>}
       </div>
+
+      {pendingList.length > 0 && (
+        <div style={{border:`1px solid ${T.textPrimary}`, borderRadius:6, padding:16, marginBottom:24}}>
+          <div className="upload-form-title" style={{marginBottom:12}}>
+            {pendingList.length} pending signup{pendingList.length!==1?'s':''} — awaiting your approval
+          </div>
+          {pendingList.map(c => (
+            <div key={c.id} className="client-card" style={{alignItems:'center'}}>
+              <div style={{minWidth:0}}>
+                <div className="client-name">{c.name || '(no name)'}</div>
+                <div className="client-meta">{c.email}{c.company ? ` · ${c.company}` : ''} · signed up {c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</div>
+              </div>
+              <div style={{display:'flex', gap:8}}>
+                <button className="btn btn-primary btn-sm" onClick={() => approveClient(c)}>Approve</button>
+                <button className="btn btn-danger btn-sm" onClick={() => rejectClient(c)}>Reject</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="section-header" style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
         <span>{clientList.length} client{clientList.length !== 1 ? 's' : ''}</span>
         <button className="btn btn-ghost btn-sm" onClick={copyAllEmails} disabled={clientList.length === 0}>
@@ -1719,6 +1707,114 @@ function Stat({ label, value }) {
         {value}
       </div>
       <div style={{fontFamily:'Space Mono,monospace', fontSize:11, color:T.textMuted, textTransform:'uppercase', letterSpacing:'0.08em', marginTop:2}}>{label}</div>
+    </div>
+  )
+}
+
+// ─── Invite Manager ───────────────────────────────────────────────
+// Create / expire the invite codes that gate /signup. The signup link is
+// {origin}/signup?code=CODE.
+function InviteManager({ onToast }) {
+  const [codes, setCodes]       = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [newCode, setNewCode]   = useState('')
+  const [newLabel, setNewLabel] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+
+  const load = async () => {
+    setLoading(true)
+    const { data, error } = await supabase.from('signup_codes').select('*').order('created_at', { ascending: false })
+    if (error) onToast('Could not load codes: ' + error.message, 'error')
+    setCodes(data || [])
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  const genCode = () => {
+    const s = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
+    setNewCode(`CYPHER-${s}`)
+  }
+
+  const createCode = async () => {
+    const code = newCode.trim()
+    if (!code) { onToast('Enter or generate a code first', 'error'); return }
+    setCreating(true)
+    const { error } = await supabase.from('signup_codes').insert({ code, label: newLabel.trim() })
+    setCreating(false)
+    if (error) { onToast(error.message.includes('duplicate') ? 'That code already exists' : error.message, 'error'); return }
+    setNewCode(''); setNewLabel('')
+    await load(); onToast('Invite code created')
+  }
+
+  const toggleActive = async (c) => {
+    const { error } = await supabase.from('signup_codes').update({ active: !c.active }).eq('id', c.id)
+    if (error) { onToast(error.message, 'error'); return }
+    await load()
+  }
+
+  const deleteCode = async (c) => {
+    if (!confirm(`Delete code "${c.code}"? Anyone with its link can no longer sign up.`)) return
+    const { error } = await supabase.from('signup_codes').delete().eq('id', c.id)
+    if (error) { onToast(error.message, 'error'); return }
+    await load(); onToast('Code deleted')
+  }
+
+  const copyLink = (c) => {
+    const link = `${origin}/signup?code=${encodeURIComponent(c.code)}`
+    navigator.clipboard?.writeText(link).then(
+      () => onToast('Invite link copied'),
+      () => onToast('Copy failed — link: ' + link, 'error')
+    )
+  }
+
+  const isExpired = (c) => c.expires_at && new Date(c.expires_at) < new Date()
+
+  return (
+    <div>
+      <div className="upload-form" style={{marginBottom:24}}>
+        <div className="upload-form-title" style={{marginBottom:12}}>Create an invite code</div>
+        <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'flex-end'}}>
+          <div className="field" style={{flex:'1 1 160px', margin:0}}>
+            <label className="label">Code</label>
+            <input className="input" placeholder="CYPHER-XXXX" value={newCode}
+              onChange={e => setNewCode(e.target.value.toUpperCase())} />
+          </div>
+          <div className="field" style={{flex:'2 1 200px', margin:0}}>
+            <label className="label">Label (who it's for — optional)</label>
+            <input className="input" placeholder="e.g. Nike, Oct 2026" value={newLabel}
+              onChange={e => setNewLabel(e.target.value)} />
+          </div>
+          <button className="btn btn-ghost" onClick={genCode}>Generate</button>
+          <button className="btn btn-primary" onClick={createCode} disabled={creating}>
+            {creating ? 'Creating…' : 'Create'}
+          </button>
+        </div>
+      </div>
+
+      <div className="section-header">{codes.length} code{codes.length!==1?'s':''}</div>
+
+      {loading
+        ? <div className="empty-state"><span className="spinner" /> Loading…</div>
+        : codes.length === 0
+          ? <div className="empty-state"><div className="empty-icon">✉</div>No invite codes yet</div>
+          : codes.map(c => (
+            <div key={c.id} className="client-card" style={{alignItems:'center', opacity: (c.active && !isExpired(c)) ? 1 : 0.5}}>
+              <div style={{minWidth:0}}>
+                <div className="client-name" style={{fontFamily:"'Space Mono',monospace"}}>{c.code}</div>
+                <div className="client-meta">
+                  {c.label || 'no label'}{' · '}{c.active ? (isExpired(c) ? 'expired' : 'active') : 'disabled'}
+                </div>
+              </div>
+              <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                <button className="btn btn-ghost btn-sm" onClick={() => copyLink(c)}>Copy link</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => toggleActive(c)}>{c.active ? 'Disable' : 'Enable'}</button>
+                <button className="btn btn-danger btn-sm" onClick={() => deleteCode(c)}>Delete</button>
+              </div>
+            </div>
+          ))
+      }
     </div>
   )
 }

@@ -17,7 +17,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 // The columns a signed-in user fetches about THEMSELVES after login.
 // (RLS restricts non-admins to their own row; private notes live in
 // client_private, which only admins can read.)
-export const CLIENT_SELF_COLS = 'id, name, email, role, user_id'
+export const CLIENT_SELF_COLS = 'id, name, email, role, user_id, approved, company'
 
 // Storage object keys choke on characters like #, %, ? and non-ASCII.
 // Keep letters, digits, dot, dash, underscore; collapse the rest.
