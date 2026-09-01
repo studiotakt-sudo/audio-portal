@@ -58,14 +58,17 @@ export default function SignupPage({ onToast }) {
     }
 
     if (data?.user) {
-      await supabase.from('clients').insert({
+      // upsert (not insert) so a repeat attempt for the same user updates the
+      // pending row instead of colliding on the unique constraint (409).
+      // Only touches unapproved rows the user owns; RLS still blocks self-approval.
+      await supabase.from('clients').upsert({
         user_id: data.user.id,
         email: email.trim().toLowerCase(),
         name: name.trim(),
         company: company.trim(),
         role: 'client',
         approved: false,
-      }).then(() => {}, () => {})
+      }, { onConflict: 'user_id' }).then(() => {}, () => {})
     }
 
     setDone(true)
