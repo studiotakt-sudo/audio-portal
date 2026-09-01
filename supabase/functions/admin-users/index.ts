@@ -134,8 +134,20 @@ Deno.serve(async (req) => {
       if (row.id === caller.id) {
         return json({ error: "You can't remove the account you're logged in as" }, 400);
       }
-      await admin.from("clients").delete().eq("id", client_id);
-      if (row.user_id) await admin.auth.admin.deleteUser(row.user_id).catch(() => {});
+      // Delete the AUTH user first. If this fails we stop and report it, rather
+      // than deleting the profile row and silently leaving an orphaned auth user
+      // (a "ghost") that blocks the email from being reused.
+      if (row.user_id) {
+        const { error: authDelErr } = await admin.auth.admin.deleteUser(row.user_id);
+        if (authDelErr) {
+          return json({ error: "Could not remove the login for this account: " + authDelErr.message }, 500);
+        }
+      }
+      // Auth identity is gone (or there was none) — now remove the profile row.
+      const { error: rowDelErr } = await admin.from("clients").delete().eq("id", client_id);
+      if (rowDelErr) {
+        return json({ error: "Login removed, but the profile row could not be deleted: " + rowDelErr.message }, 500);
+      }
       return json({ ok: true });
     }
 

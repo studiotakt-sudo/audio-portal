@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase, CLIENT_SELF_COLS } from './supabase'
 import LoginPage from './LoginPage'
 import SignupPage from './SignupPage'
+import ContactWidget from './ContactWidget'
 import AdminPage from './AdminPage'
 import ClientPage from './ClientPage'
 
@@ -587,7 +588,7 @@ export default function App() {
             ? <AdminPage clientRow={clientRow} onPlay={playTrack} playerProps={playerProps} onToast={showToast} theme={theme} onThemeChange={setTheme} />
             : clientRow.approved === false
               ? <PendingApproval name={clientRow.name} onSignOut={handleSignOut} />
-              : <ClientPage clientRow={clientRow} onPlay={playTrack} playerProps={playerProps} onToast={showToast} registerNextResolver={fn => { nextTrackResolverRef.current = fn }} />
+              : <><ClientPage clientRow={clientRow} onPlay={playTrack} playerProps={playerProps} onToast={showToast} registerNextResolver={fn => { nextTrackResolverRef.current = fn }} /><ContactWidget clientRow={clientRow} onToast={showToast} /></>
         }
       </div>
 
