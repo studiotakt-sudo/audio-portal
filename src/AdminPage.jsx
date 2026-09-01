@@ -637,6 +637,46 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     await onRefresh(); setEditingId(null); onToast('Track updated')
   }
 
+  // Replace a track's audio file while keeping all its metadata (tags, bpm,
+  // composer, featured, publish state, sort order, versions). Re-analyzes the
+  // new file's duration + waveform, updates the row, then deletes the old file.
+  const [replacingId, setReplacingId] = useState(null)
+  const replaceAudio = async (track, file) => {
+    if (!file) return
+    setReplacingId(track.id)
+    try {
+      const { duration, waveformPeaks } = await extractAudioData(file)
+      const newPath = `${Date.now()}-${sanitizeFileName(file.name)}`
+      const { error: upErr } = await supabase.storage
+        .from('audio-tracks').upload(newPath, file, { contentType: file.type })
+      if (upErr) { onToast('Upload failed: ' + upErr.message, 'error'); setReplacingId(null); return }
+
+      const oldPath = track.file_path
+      const { error: dbErr } = await supabase.from('tracks').update({
+        file_name: file.name,
+        file_path: newPath,
+        file_size: file.size,
+        mime_type: file.type,
+        duration: duration || null,
+        waveform_peaks: waveformPeaks || [],
+      }).eq('id', track.id)
+      if (dbErr) {
+        // Row update failed — remove the file we just uploaded so it doesn't orphan.
+        await supabase.storage.from('audio-tracks').remove([newPath]).catch(() => {})
+        onToast('Could not update track: ' + dbErr.message, 'error'); setReplacingId(null); return
+      }
+
+      // Success — now it's safe to delete the OLD file (only if it differs).
+      if (oldPath && oldPath !== newPath) {
+        await supabase.storage.from('audio-tracks').remove([oldPath]).catch(() => {})
+      }
+      await onRefresh(); onToast('Audio replaced')
+    } catch (e) {
+      onToast('Replace failed: ' + (e?.message || 'unknown error'), 'error')
+    }
+    setReplacingId(null)
+  }
+
   const deleteTrack = async (track) => {
     if (!confirm('Delete this track and all its versions?')) return
     const paths = [track.file_path, ...(track.versions || []).map(v => v.file_path)]
@@ -1096,6 +1136,18 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                           disabled={featuredImageUploading}>
                           {featuredImageUploading ? <><span className="spinner"/>Uploading image…</> : 'Save changes'}
                         </button>
+                        <label className="btn btn-ghost btn-sm" style={{ cursor: replacingId === track.id ? 'default' : 'pointer', opacity: replacingId === track.id ? 0.6 : 1 }}>
+                          {replacingId === track.id ? <><span className="spinner"/>Replacing…</> : 'Replace audio'}
+                          <input type="file" accept="audio/*" style={{ display: 'none' }}
+                            disabled={replacingId === track.id}
+                            onChange={e => {
+                              const f = e.target.files?.[0]
+                              e.target.value = ''  // allow re-selecting the same file later
+                              if (f && confirm(`Replace the audio for "${track.title}" with "${f.name}"? Metadata (tags, BPM, etc.) is kept; the old audio file is deleted.`)) {
+                                replaceAudio(track, f)
+                              }
+                            }} />
+                        </label>
                         <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
                       </div>
                     </div>
