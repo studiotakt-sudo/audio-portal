@@ -71,6 +71,8 @@ export function buildCss(t) {
   .topbar-brand { color: ${t.textPrimary}; }
   .topbar-right .mode-badge { background: transparent; }
   .topbar-brand { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 400; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+  .topbar-logo { height: 26px; width: auto; display: block; }
+  @media (max-width: 640px) { .topbar-logo { height: 18px; } }
   .topbar-brand-dot { width: 7px; height: 7px; border-radius: 50%; background: ${t.textPrimary}; animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
   .topbar-right { display: flex; align-items: center; gap: 16px; }
@@ -568,7 +570,7 @@ export default function App() {
       />
       <div className="portal">
         <div className="topbar">
-          <div className="topbar-brand"><div className="topbar-brand-dot" />Cypher Cache</div>
+          <div className="topbar-brand"><div className="topbar-brand-dot" /><img src="/logo.png" alt="Cypher Cache" className="topbar-logo" /></div>
           <div className="topbar-right">
             {clientRow && (
               <>
