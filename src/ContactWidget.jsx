@@ -55,9 +55,9 @@ export default function ContactWidget({
   const panel = (
     <div style={{
       position: 'fixed',
-      bottom: variant === 'floating' ? 84 : undefined,
+      bottom: variant === 'floating' ? 120 : undefined,
       top: variant === 'link' ? 84 : undefined,
-      right: 24, zIndex: 200,
+      right: variant === 'floating' ? 52 : 24, zIndex: 200,
       width: 320, maxWidth: 'calc(100vw - 48px)',
       background: '#0a0a0a', border: '1px solid #232323', borderRadius: 8,
       padding: 18, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
@@ -101,21 +101,22 @@ export default function ContactWidget({
     )
   }
 
-  // floating variant
+  // floating variant — vertical tab riding the right edge, lower down
   return (
     <>
       <button
         onClick={() => setOpen(o => !o)}
         aria-label="Request something from the studio"
         style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 200,
-          height: 46, padding: '0 20px', borderRadius: 23,
+          position: 'fixed', right: 0, bottom: 120, zIndex: 200,
           background: '#ffffff', color: '#000000', border: 'none',
           fontSize: 14, fontWeight: 600, fontFamily: "'Inter', sans-serif",
-          cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '16px 12px', borderRadius: '8px 0 0 8px',
+          writingMode: 'vertical-rl', transform: 'rotate(180deg)',
+          letterSpacing: '0.02em', cursor: 'pointer',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
         }}>
-        {open ? '×  Close' : triggerLabel}
+        {open ? 'Close' : triggerLabel}
       </button>
       {open && panel}
     </>
