@@ -263,14 +263,18 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
   }
 
   const download = useCallback(async (track) => {
+    // Prefix the download name so a stray file in a project is traceable to us.
+    // Keep the extension; avoid doubling the prefix if it's somehow already there.
+    const base = track.file_name || track.title || 'track'
+    const dlName = base.startsWith('cypher_cache_') ? base : `cypher_cache_${base}`
     // The `download` option makes Supabase serve Content-Disposition with the
-    // original filename — the a.download attribute is ignored cross-origin.
+    // filename — the a.download attribute is ignored cross-origin.
     const { data, error } = await supabase.storage
       .from('audio-tracks')
-      .createSignedUrl(track.file_path, 300, { download: track.file_name || track.title || true })
+      .createSignedUrl(track.file_path, 300, { download: dlName })
     if (error || !data?.signedUrl) { onToast('Download failed', 'error'); return }
     const a = document.createElement('a')
-    a.href = data.signedUrl; a.download = track.file_name || track.title; a.click()
+    a.href = data.signedUrl; a.download = dlName; a.click()
     onToast('Download started')
     // Skip analytics for admin accounts — only client activity counts.
     if (clientRow?.role !== 'admin') logTrackEvent({
