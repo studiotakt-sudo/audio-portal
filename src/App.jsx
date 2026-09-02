@@ -572,7 +572,7 @@ export default function App() {
           <div className="topbar-right">
             {clientRow && (
               <>
-                <span className={`mode-badge ${clientRow.role}`}>{clientRow.role === 'admin' ? '⬡ Admin' : 'Client'}</span>
+                {clientRow.role === 'admin' && <span className={`mode-badge ${clientRow.role}`}>⬡ Admin</span>}
                 <span style={{ fontSize:13, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{clientRow.name}</span>
                 {clientRow.role !== 'admin' && clientRow.approved !== false && (
                   <ContactWidget
