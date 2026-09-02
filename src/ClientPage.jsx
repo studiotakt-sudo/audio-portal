@@ -237,7 +237,7 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
   const fetchTracks = async () => {
     // Explicit column list — deliberately EXCLUDES admin_notes and
     // project_file_ref so private admin data never reaches the client browser.
-    const TRACK_COLS = 'id, title, file_name, file_path, file_size, mime_type, tags, uploaded_at, versions, duration, sort_order, featured, waveform_peaks, featured_image, bpm, composer_id, is_published'
+    const TRACK_COLS = 'id, title, file_name, file_path, file_size, mime_type, tags, uploaded_at, versions, duration, sort_order, featured, waveform_peaks, featured_image, bpm, composer_id, is_published, hidden'
     let { data, error } = await supabase.from('tracks').select(TRACK_COLS).order('sort_order', { ascending: true })
 
     // If the explicit column list ever fails (e.g. a schema mismatch), fall back
@@ -251,7 +251,8 @@ export default function ClientPage({ clientRow, onPlay, playerProps, onToast, re
     }
 
     const mine = (data || []).filter(t =>
-      t.is_published !== false   // never show drafts to clients; all published tracks are visible to all
+      t.is_published !== false &&   // never show drafts to clients
+      t.hidden !== true             // never show hidden (e.g. exclusively-pitched) tracks
     )
     setTracks(mine)
     setLoading(false)

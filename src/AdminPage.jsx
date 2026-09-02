@@ -577,6 +577,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
       composer_id: track.composer_id || '',
       admin_notes: track.admin_notes || '',
       project_file_ref: track.project_file_ref || '',
+      hidden: track.hidden === true,
     })
   }
   const editAddTag = () => {
@@ -624,6 +625,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
       featured_image: featuredImagePath,
       bpm: editState.bpm ? parseInt(editState.bpm) : null,
       composer_id: editState.composer_id || null,
+      hidden: editState.hidden === true,
     }).eq('id', trackId)
     if (error) { onToast('Save failed', 'error'); return }
     // Private fields live in the admin-only table since Phase 7.
@@ -685,14 +687,17 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     await onRefresh(); onToast('Track deleted')
   }
 
+  const [showHiddenOnly, setShowHiddenOnly] = useState(false)
   const filtered = localTracks.filter(t =>
     // Show published tracks; also include a draft that's currently being edited
     // so its edit panel renders (drafts otherwise live only in the review section).
     (t.is_published !== false || t.id === editingId) &&
+    (!showHiddenOnly || t.hidden === true) &&
     (!search ||
     t.title.toLowerCase().includes(search.toLowerCase()) ||
     t.tags?.some(tag => tag.includes(search.toLowerCase())))
   )
+  const hiddenCount = localTracks.filter(t => t.hidden === true && t.is_published !== false).length
 
   const featuredCount = localTracks.filter(t => t.featured).length
 
@@ -882,7 +887,16 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
               </div>
             )}
           </div>
-          <div className="section-header">Library — {filtered.length} of {localTracks.length}</div>
+          <div className="section-header" style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+            <span>Library — {filtered.length} of {localTracks.length}</span>
+            {hiddenCount > 0 && (
+              <button className="btn btn-ghost btn-sm"
+                onClick={() => setShowHiddenOnly(v => !v)}
+                style={{ color: showHiddenOnly ? '#fff' : T.textMuted }}>
+                {showHiddenOnly ? '✕ Show all' : `Hidden (${hiddenCount})`}
+              </button>
+            )}
+          </div>
           <div className="track-list" style={{paddingBottom:80}}>
             {filtered.map((track, i) => {
               const isEditing  = editingId === track.id
@@ -921,6 +935,9 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                       <div className={`track-name ${currentTrack?.id===track.id&&currentTrack?.versionIdx===undefined?'playing':''}`}>
                         {isFeatured && <span style={{fontSize:10, marginRight:6, color:accentColor}}>★</span>}
                         {track.title}
+                        {track.hidden && (
+                          <span style={{fontSize:9, fontFamily:'Space Mono,monospace', letterSpacing:'0.08em', textTransform:'uppercase', color:'#000', background:'#fff', padding:'2px 6px', borderRadius:2, marginLeft:10, verticalAlign:'middle'}}>Hidden</span>
+                        )}
                         {versions.length > 0 && (
                           <span style={{fontSize:10, fontFamily:'Space Mono,monospace', color:accentColor, marginLeft:8, opacity:0.8}}>
                             +{versions.length} version{versions.length!==1?'s':''}
@@ -1131,6 +1148,11 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                           </div>
                         )}
                       </div>
+                      <label style={{display:'flex', alignItems:'center', gap:8, margin:'4px 0 12px', cursor:'pointer', fontFamily:"'Space Mono',monospace", fontSize:12, color: editState.hidden ? '#fff' : T.textSecondary}}>
+                        <input type="checkbox" checked={editState.hidden}
+                          onChange={e => setEditState(s => ({...s, hidden: e.target.checked}))} />
+                        Hide from clients {editState.hidden && '— currently hidden'}
+                      </label>
                       <div className="track-edit-actions">
                         <button className="btn btn-primary btn-sm" onClick={() => saveEdit(track.id)}
                           disabled={featuredImageUploading}>
