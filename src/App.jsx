@@ -574,6 +574,18 @@ export default function App() {
               <>
                 <span className={`mode-badge ${clientRow.role}`}>{clientRow.role === 'admin' ? '⬡ Admin' : 'Client'}</span>
                 <span style={{ fontSize:13, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{clientRow.name}</span>
+                {clientRow.role !== 'admin' && clientRow.approved !== false && (
+                  <ContactWidget
+                    clientRow={clientRow}
+                    onToast={showToast}
+                    variant="link"
+                    kind="licensing"
+                    triggerLabel="Contact"
+                    title="Get in touch"
+                    body="Interested in licensing a track, or have a question? Send us a message and we'll get back to you."
+                    placeholder="Which track, and what do you have in mind?"
+                  />
+                )}
                 <button className="btn btn-ghost btn-sm" onClick={handleSignOut}>Sign out</button>
               </>
             )}

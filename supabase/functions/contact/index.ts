@@ -19,13 +19,17 @@ const NOTIFY_FROM = Deno.env.get("NOTIFY_FROM") ?? "noreply@contact.cyphercache.
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-api-version",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 Deno.serve(async (req) => {
+  console.log("contact function invoked — method:", req.method);
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return new Response("POST only", { status: 405, headers: CORS });
+
+  // Log config presence (not the values) so we can see if secrets are readable.
+  console.log("config check — RESEND_API_KEY set:", !!RESEND_API_KEY, "NOTIFY_TO set:", !!NOTIFY_TO, "NOTIFY_FROM:", NOTIFY_FROM);
 
   let body: any;
   try {
@@ -34,10 +38,14 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "bad payload" }), { status: 400, headers: CORS });
   }
 
+  const kind    = (body?.kind || "request").toString();
   const name    = (body?.name    || "(no name)").toString().slice(0, 200);
   const company = (body?.company || "(no company)").toString().slice(0, 200);
   const email   = (body?.email   || "(no email)").toString().slice(0, 200);
   const message = (body?.message || "").toString().slice(0, 5000);
+
+  const isLicensing = kind === "licensing";
+  const label = isLicensing ? "Licensing enquiry" : "Track request";
 
   if (!message.trim()) {
     return new Response(JSON.stringify({ error: "empty message" }), { status: 400, headers: CORS });
@@ -51,7 +59,7 @@ Deno.serve(async (req) => {
 
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const html =
-    `<p><strong>New message from a client</strong></p>` +
+    `<p><strong>${label} from a client</strong></p>` +
     `<p>From: ${esc(name)} (${esc(company)})<br>Email: ${esc(email)}</p>` +
     `<hr><p style="white-space:pre-wrap">${esc(message)}</p>`;
 
@@ -66,7 +74,7 @@ Deno.serve(async (req) => {
         from: NOTIFY_FROM,
         to: recipients,
         reply_to: email && email.includes("@") ? email : undefined,
-        subject: `Cypher Cache — message from ${name}`,
+        subject: `Cypher Cache — ${label} from ${name}`,
         html,
       }),
     });
