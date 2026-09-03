@@ -72,7 +72,6 @@ export function buildCss(t) {
   .topbar-right .mode-badge { background: transparent; }
   .topbar-brand { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 400; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
   .topbar-logo { height: 26px; width: auto; display: block; }
-  @media (max-width: 640px) { .topbar-logo { height: 18px; } }
   .topbar-brand-dot { width: 7px; height: 7px; border-radius: 50%; background: ${t.textPrimary}; animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
   .topbar-right { display: flex; align-items: center; gap: 16px; }
@@ -199,6 +198,13 @@ export function buildCss(t) {
 
     /* Tag browser pills: allow wrapping, a touch smaller. */
     .tag-pill { font-size: 15px; padding: 8px 14px; }
+
+    /* Top bar: hide the name and slightly shrink the logo so the logo +
+       Contact + Sign out sit comfortably on one line without wrapping. */
+    .topbar-name { display: none; }
+    .topbar-logo { height: 16px; }
+    .topbar-right { gap: 8px; }
+    .topbar-right .btn { white-space: nowrap; }
   }
 
   /* Never allow horizontal overflow / pinch-zoom on any screen. */
@@ -591,7 +597,7 @@ export default function App() {
             {clientRow && (
               <>
                 {clientRow.role === 'admin' && <span className={`mode-badge ${clientRow.role}`}>⬡ Admin</span>}
-                <span style={{ fontSize:13, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{clientRow.name}</span>
+                <span className="topbar-name" style={{ fontSize:13, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{clientRow.name}</span>
                 {clientRow.role !== 'admin' && clientRow.approved !== false && (
                   <ContactWidget
                     clientRow={clientRow}
