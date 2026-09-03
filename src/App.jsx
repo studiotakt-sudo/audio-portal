@@ -186,7 +186,23 @@ export function buildCss(t) {
     .main { padding: 16px; } .topbar { padding: 0 16px; }
     .track-edit-grid { grid-template-columns: 1fr; } .login-card { padding: 32px 24px; }
     .theme-grid { grid-template-columns: 1fr 1fr; }
+
+    /* Track rows: stack into a single column so nothing is forced off-screen. */
+    .track-row { grid-template-columns: 24px 1fr; gap: 12px; column-gap: 12px; padding: 16px 2px; }
+    .track-row.playing { padding: 16px 12px; }
+    /* Title may wrap instead of truncating to "D..." */
+    .track-name { white-space: normal; font-size: 18px; line-height: 1.2; overflow: visible; }
+    /* The third column (duration/credit + actions) drops under the title,
+       spanning full width, left-aligned, instead of a fixed side column. */
+    .track-row > div:last-child { grid-column: 2 / -1; justify-content: flex-start !important; margin-top: 4px; }
+    .track-duration { text-align: left; white-space: normal; }
+
+    /* Tag browser pills: allow wrapping, a touch smaller. */
+    .tag-pill { font-size: 15px; padding: 8px 14px; }
   }
+
+  /* Never allow horizontal overflow / pinch-zoom on any screen. */
+  html, body, #root { max-width: 100%; overflow-x: hidden; }
 `
 }
 
