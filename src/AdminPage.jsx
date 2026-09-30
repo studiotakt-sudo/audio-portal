@@ -587,6 +587,19 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
   }
   const editRemoveTag = tag => setEditState(s => ({ ...s, tags: s.tags.filter(x => x !== tag) }))
 
+  // All tags already used across the library — for the suggestion dropdowns.
+  const allTags = [...new Set(localTracks.flatMap(t => t.tags || []))].sort()
+  // Suggestions matching what's typed, excluding tags already on this item.
+  const tagSuggestions = (typed, current) => {
+    const q = (typed || '').trim().toLowerCase().replace(/\s+/g, '-')
+    return allTags
+      .filter(tag => !current.includes(tag) && (q === '' || tag.includes(q)))
+      .slice(0, 12)
+  }
+  // Add a specific existing tag directly (click-to-select).
+  const addTagDirect = (tag) => { if (!form.tags.includes(tag)) setForm(f => ({ ...f, tags:[...f.tags, tag], tagInput:'' })) }
+  const editAddTagDirect = (tag) => { if (!editState.tags.includes(tag)) setEditState(s => ({ ...s, tags:[...s.tags, tag], tagInput:'' })) }
+
   const uploadVersion = async () => {
     if (!versionFile || !versionLabel.trim()) return
     setVersionUploading(true)
@@ -805,6 +818,14 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                 onKeyDown={e => { if(e.key==='Enter'||e.key===','){e.preventDefault();addTag()}}} />
               <button className="btn btn-ghost btn-sm" onClick={addTag}>Add</button>
             </div>
+            {tagSuggestions(form.tagInput, form.tags).length > 0 && (
+              <div className="tag-suggestions">
+                {tagSuggestions(form.tagInput, form.tags).map(tag => (
+                  <button key={tag} type="button" className="tag-suggestion"
+                    onClick={() => addTagDirect(tag)}>{tag}</button>
+                ))}
+              </div>
+            )}
             {form.tags.length > 0 && (
               <div className="tag-chips">
                 {form.tags.map(tag => (
@@ -1045,6 +1066,14 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                               onKeyDown={e => { if(e.key==='Enter'||e.key===','){e.preventDefault();editAddTag()}}} />
                             <button className="btn btn-ghost btn-sm" onClick={editAddTag}>Add</button>
                           </div>
+                          {tagSuggestions(editState.tagInput, editState.tags).length > 0 && (
+                            <div className="tag-suggestions">
+                              {tagSuggestions(editState.tagInput, editState.tags).map(tag => (
+                                <button key={tag} type="button" className="tag-suggestion"
+                                  onClick={() => editAddTagDirect(tag)}>{tag}</button>
+                              ))}
+                            </div>
+                          )}
                           {editState.tags.length > 0 && (
                             <div className="tag-chips" style={{marginTop:8}}>
                               {editState.tags.map(tag => (

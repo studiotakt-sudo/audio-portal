@@ -110,6 +110,10 @@ export function buildCss(t) {
   .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .tag-chip { display: flex; align-items: center; gap: 4px; background: ${t.bg3}; border: 1px solid ${t.border}; border-radius: 2px; padding: 3px 8px; font-size: 11px; font-family: 'Space Mono', monospace; color: ${t.amber}; }
   .tag-chip-remove { cursor: pointer; background: none; border: none; color: ${t.textMuted}; padding: 0; font-size: 13px; line-height: 1; display: flex; align-items: center; } .tag-chip-remove:hover { color: ${t.red}; }
+  /* Existing-tag suggestions shown under a tag input to speed up tagging. */
+  .tag-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .tag-suggestion { cursor: pointer; background: transparent; border: 1px solid ${t.border}; border-radius: 2px; padding: 4px 10px; font-size: 11px; font-family: 'Space Mono', monospace; color: ${t.textSecondary}; transition: all 0.12s; }
+  .tag-suggestion:hover { border-color: ${t.textPrimary}; color: ${t.textPrimary}; }
   .search-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
   .search-input-wrap { position: relative; flex: 1; min-width: 200px; }
   .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 14px; color: ${t.textMuted}; pointer-events: none; }
