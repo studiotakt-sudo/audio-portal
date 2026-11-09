@@ -605,7 +605,8 @@ export default function App() {
                 <span className="topbar-name" style={{ fontSize:13, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{clientRow.name}</span>
                 {clientRow.role !== 'admin' && clientRow.approved !== false && (
                   <>
-                    <TermsModal clientRow={clientRow} onToast={showToast} />
+                    <TermsModal clientRow={clientRow} onToast={showToast}
+                      onSeen={() => setClientRow(c => c ? { ...c, terms_seen_at: new Date().toISOString() } : c)} />
                     <ContactWidget
                       clientRow={clientRow}
                       onToast={showToast}

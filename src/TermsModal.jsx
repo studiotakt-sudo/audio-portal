@@ -1,15 +1,28 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 
 // "Terms" link in the top bar that opens a Usage & Copyright modal.
-// The licensing contact routes through the existing contact pipeline
-// (contact_messages insert + `contact` edge function), so no email address
-// ever appears on the page for scrapers to find.
-export default function TermsModal({ clientRow, onToast }) {
+// Auto-opens once on a client's first login (terms_seen_at is null); closing
+// it stamps terms_seen_at via the mark_terms_seen() RPC so it never auto-opens
+// again. The licensing contact routes through the existing contact pipeline, so
+// no email address ever appears on the page for scrapers to find.
+export default function TermsModal({ clientRow, onToast, onSeen }) {
+  const firstTime = clientRow && clientRow.terms_seen_at == null
   const [open, setOpen]       = useState(false)
   const [showForm, setShow]   = useState(false)
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
+
+  // Auto-open once on first login.
+  useEffect(() => {
+    if (firstTime) setOpen(true)
+  }, [firstTime])
+
+  const markSeen = async () => {
+    if (!firstTime) return
+    try { await supabase.rpc('mark_terms_seen') } catch (_) { /* best-effort */ }
+    onSeen?.()  // let the app update its local copy so it won't re-open this session
+  }
 
   const send = async () => {
     const text = message.trim()
@@ -35,11 +48,11 @@ export default function TermsModal({ clientRow, onToast }) {
     } catch (_) { /* email best-effort */ }
     setSending(false)
     if (dbErr) { onToast?.('Could not send — please try again', 'error'); return }
-    setMessage(''); setShow(false); setOpen(false)
+    markSeen(); setMessage(''); setShow(false); setOpen(false)
     onToast?.('Message sent — we\'ll get back to you')
   }
 
-  const close = () => { setOpen(false); setShow(false); setMessage('') }
+  const close = () => { markSeen(); setOpen(false); setShow(false); setMessage('') }
 
   return (
     <>
@@ -47,7 +60,7 @@ export default function TermsModal({ clientRow, onToast }) {
 
       {open && (
         <div
-          onClick={close}
+          onClick={firstTime ? undefined : close}
           style={{
             position: 'fixed', inset: 0, zIndex: 300,
             background: 'rgba(0,0,0,0.7)',
@@ -61,6 +74,7 @@ export default function TermsModal({ clientRow, onToast }) {
               width: 560, maxWidth: '100%', maxHeight: '85vh', overflow: 'auto',
               padding: '32px 32px 28px', position: 'relative',
             }}>
+            {!firstTime && (
             <button
               onClick={close}
               aria-label="Close"
@@ -68,6 +82,7 @@ export default function TermsModal({ clientRow, onToast }) {
                 position: 'absolute', top: 16, right: 16, background: 'none',
                 border: 'none', color: '#8a8a8a', fontSize: 22, cursor: 'pointer', lineHeight: 1,
               }}>×</button>
+            )}
 
             <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: '#8a8a8a', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
               © 2026 CYPHER · All Rights Reserved
@@ -122,6 +137,12 @@ export default function TermsModal({ clientRow, onToast }) {
                   </div>
                 )}
               </div>
+            )}
+
+            {firstTime && (
+              <button className="btn btn-ghost" style={{ marginTop: 16, width: '100%' }} onClick={close}>
+                I understand — continue to the library
+              </button>
             )}
           </div>
         </div>
