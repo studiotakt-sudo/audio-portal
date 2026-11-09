@@ -692,6 +692,18 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
     setReplacingId(null)
   }
 
+  const downloadTrack = async (track) => {
+    const base = track.file_name || track.title || 'track'
+    const dlName = base.startsWith('cypher_cache_') ? base : `cypher_cache_${base}`
+    const { data, error } = await supabase.storage
+      .from('audio-tracks')
+      .createSignedUrl(track.file_path, 300, { download: dlName })
+    if (error || !data?.signedUrl) { onToast('Download failed', 'error'); return }
+    const a = document.createElement('a')
+    a.href = data.signedUrl; a.download = dlName; a.click()
+    onToast('Download started')
+  }
+
   const deleteTrack = async (track) => {
     if (!confirm('Delete this track and all its versions?')) return
     const paths = [track.file_path, ...(track.versions || []).map(v => v.file_path)]
@@ -1013,6 +1025,7 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                           {isExpanded ? '▴' : '▾'}
                         </button>
                       )}
+                      <button className="btn-icon" title="Download" onClick={e => { e.stopPropagation(); downloadTrack(track) }}>↓</button>
                       <button className={`btn-icon ${isEditing?'edit-active':''}`} title="Edit" onClick={e => openEdit(track,e)}>✎</button>
                       <button className="btn-icon" title="Delete" style={{color:T.red, borderColor:T.red, opacity:0.6}}
                         onClick={() => deleteTrack(track)}>×</button>
@@ -1029,7 +1042,10 @@ function TrackManager({ tracks, clients, composers, onRefresh, onPlay, playerPro
                         <div className={`track-name ${currentTrack?.id===track.id&&currentTrack?.versionIdx===vi?'playing':''}`} style={{fontSize:13}}>{v.label}</div>
                       </div>
                       <TrackMeta size={v.file_size} duration={v.duration} />
-                      <div className="track-actions" />
+                      <div className="track-actions" onClick={e => e.stopPropagation()}>
+                        <button className="btn-icon" title="Download this version"
+                          onClick={() => downloadTrack({ ...track, file_path:v.file_path, file_name:v.file_name })}>↓</button>
+                      </div>
                     </div>
                   ))}
 
